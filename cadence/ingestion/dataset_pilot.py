@@ -76,6 +76,7 @@ class SourceRecord:
     license_status: str
     rights_status: str
     source_state: str
+    source_rejection_reason: str | None
     download_status: str
     domain: str
     checksum_sha256: str
@@ -150,6 +151,7 @@ def _coerce_source_row(row: dict[str, object]) -> SourceRecord:
         license_status=str(row.get("license_status") or "unverified-research-quarantine"),
         rights_status=rights_status,
         source_state=str(row.get("source_state") or "candidate"),
+        source_rejection_reason=str(row["source_rejection_reason"]) if row.get("source_rejection_reason") else None,
         download_status=str(row.get("download_status") or ("downloaded" if row.get("media_path") else "not_downloaded")),
         domain=str(row.get("domain") or DOMAIN),
         checksum_sha256=str(row.get("checksum_sha256") or ""),
@@ -269,6 +271,7 @@ def write_candidate_sources(
             license_status="unverified-research-quarantine",
             rights_status="unverified",
             source_state="candidate",
+            source_rejection_reason=None,
             download_status="not_downloaded",
             domain=DOMAIN,
             checksum_sha256="",
@@ -305,6 +308,27 @@ def approve_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> list
     _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
     return updated
 
+
+
+def reject_sources(
+    pilot_dir: str | Path, source_asset_ids: list[UUID], *, reason: str
+) -> list[SourceRecord]:
+    wanted = set(source_asset_ids)
+    updated: list[SourceRecord] = []
+    for source in _read_sources(pilot_dir):
+        if source.source_asset_id in wanted:
+            updated.append(SourceRecord(**{
+                **asdict(source),
+                "source_asset_id": source.source_asset_id,
+                "source_state": "rejected",
+                "source_rejection_reason": reason,
+                "eligible_for_training": False,
+                "eligible_for_contrastive": False,
+            }))
+        else:
+            updated.append(source)
+    _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
+    return updated
 
 def download_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> list[SourceRecord]:
     """Download approved URL sources with yt-dlp and update metadata.
@@ -397,6 +421,7 @@ def write_source_record(
         license_status=license_status,
         rights_status="unverified" if license_status in {"unknown", "unverified", "unverified-research-quarantine"} else license_status,
         source_state="approved_source",
+        source_rejection_reason=None,
         download_status="downloaded",
         domain=DOMAIN,
         checksum_sha256=checksum,

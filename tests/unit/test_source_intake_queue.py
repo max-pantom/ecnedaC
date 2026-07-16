@@ -66,6 +66,7 @@ def test_source_record_accepts_legacy_and_new_rights_fields(tmp_path: Path) -> N
         license_status="unverified-research-quarantine",
         rights_status="unverified",
         source_state="candidate",
+        source_rejection_reason=None,
         download_status="not_downloaded",
         domain="launch-video-sound-design",
         checksum_sha256="",

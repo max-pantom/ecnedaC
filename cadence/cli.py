@@ -82,6 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
     source_download = source_sub.add_parser("download")
     source_download.add_argument("--pilot-dir", default="data/pilots/launch-video")
     source_download.add_argument("--source", action="append", required=True)
+    source_reject = source_sub.add_parser("reject")
+    source_reject.add_argument("--pilot-dir", default="data/pilots/launch-video")
+    source_reject.add_argument("--source", action="append", required=True)
+    source_reject.add_argument("--reason", required=True)
 
     dataset_segments = dataset_sub.add_parser("segments")
     segments_sub = dataset_segments.add_subparsers(dest="segments_command", required=True)
@@ -188,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
             download_sources,
             inspect_source,
             reject_segments,
+            reject_sources,
             suggest_segments,
             write_source_record,
         )
@@ -235,6 +240,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 source_ids = [UUID(value) for value in args.source]
             _json(download_sources(args.pilot_dir, source_ids))
+        elif args.dataset_command == "source" and args.source_command == "reject":
+            if args.source == ["all"]:
+                source_ids = [source.source_asset_id for source in _read_sources(args.pilot_dir)]
+            else:
+                source_ids = [UUID(value) for value in args.source]
+            _json(reject_sources(args.pilot_dir, source_ids, reason=args.reason))
         elif args.dataset_command == "segments" and args.segments_command == "suggest":
             sources = _read_sources(args.pilot_dir)
             selected = sources if args.source == "all" else [

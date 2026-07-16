@@ -75,6 +75,7 @@ Pilot workflow:
 ```bash
 uv run cadence dataset source inspect --source all
 uv run cadence dataset source approve --source <source-asset-id>
+uv run cadence dataset source reject --source <source-asset-id> --reason outside-launch-video-domain
 uv run cadence dataset source download --source <source-asset-id>
 uv run cadence dataset segments suggest --source all --min-duration 4 --max-duration 10
 uv run cadence dataset segments approve --clip <clip-asset-id>
