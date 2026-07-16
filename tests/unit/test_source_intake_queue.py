@@ -6,6 +6,7 @@ from cadence.ingestion.dataset_pilot import (
     load_source_queue,
     write_candidate_sources,
 )
+from cadence.cli import main
 
 
 def test_url_candidate_queue_records_submitter_and_rights_state(tmp_path: Path) -> None:
@@ -80,3 +81,25 @@ def test_source_record_accepts_legacy_and_new_rights_fields(tmp_path: Path) -> N
         added_at="2026-07-16T00:00:00+00:00",
     )
     assert source.rights_status == "unverified"
+
+
+def test_dataset_cli_source_approve_preserves_unverified_training_exclusion(
+    tmp_path: Path,
+) -> None:
+    pilot_dir = tmp_path / "pilot"
+    assert main([
+        "dataset", "source", "add",
+        "https://example.com/launch-video",
+        "--pilot-dir", str(pilot_dir),
+        "--submitted-by", "max",
+    ]) == 0
+    queue = load_source_queue(pilot_dir)
+    assert main([
+        "dataset", "source", "approve",
+        "--pilot-dir", str(pilot_dir),
+        "--source", str(queue[0].source_asset_id),
+    ]) == 0
+    approved = load_source_queue(pilot_dir)[0]
+    assert approved.source_state == "approved_source"
+    assert approved.rights_status == "unverified"
+    assert approved.eligible_for_training is False

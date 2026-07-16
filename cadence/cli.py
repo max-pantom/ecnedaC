@@ -76,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     source_inspect = source_sub.add_parser("inspect")
     source_inspect.add_argument("--pilot-dir", default="data/pilots/launch-video")
     source_inspect.add_argument("--source", default="all")
+    source_approve = source_sub.add_parser("approve")
+    source_approve.add_argument("--pilot-dir", default="data/pilots/launch-video")
+    source_approve.add_argument("--source", action="append", required=True)
+    source_download = source_sub.add_parser("download")
+    source_download.add_argument("--pilot-dir", default="data/pilots/launch-video")
+    source_download.add_argument("--source", action="append", required=True)
 
     dataset_segments = dataset_sub.add_parser("segments")
     segments_sub = dataset_segments.add_subparsers(dest="segments_command", required=True)
@@ -176,8 +182,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "dataset":
         from cadence.ingestion.dataset_pilot import (
             approve_segments,
+            approve_sources,
             build_pilot_manifest,
             build_report,
+            download_sources,
             inspect_source,
             reject_segments,
             suggest_segments,
@@ -215,6 +223,18 @@ def main(argv: list[str] | None = None) -> int:
                 source_id = UUID(args.source)
                 sources = [source for source in sources if source.source_asset_id == source_id]
             _json([inspect_source(source) for source in sources])
+        elif args.dataset_command == "source" and args.source_command == "approve":
+            if args.source == ["all"]:
+                source_ids = [source.source_asset_id for source in _read_sources(args.pilot_dir)]
+            else:
+                source_ids = [UUID(value) for value in args.source]
+            _json(approve_sources(args.pilot_dir, source_ids))
+        elif args.dataset_command == "source" and args.source_command == "download":
+            if args.source == ["all"]:
+                source_ids = [source.source_asset_id for source in _read_sources(args.pilot_dir)]
+            else:
+                source_ids = [UUID(value) for value in args.source]
+            _json(download_sources(args.pilot_dir, source_ids))
         elif args.dataset_command == "segments" and args.segments_command == "suggest":
             sources = _read_sources(args.pilot_dir)
             selected = sources if args.source == "all" else [

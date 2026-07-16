@@ -74,11 +74,16 @@ Pilot workflow:
 
 ```bash
 uv run cadence dataset source inspect --source all
+uv run cadence dataset source approve --source <source-asset-id>
+uv run cadence dataset source download --source <source-asset-id>
 uv run cadence dataset segments suggest --source all --min-duration 4 --max-duration 10
 uv run cadence dataset segments approve --clip <clip-asset-id>
 uv run cadence dataset build pilot-launch-v0
 uv run cadence dataset report pilot-launch-v0
 ```
+
+`source download` requires `yt-dlp` and only downloads approved sources. Downloading a source does
+not make it training eligible; unverified rights remain excluded.
 
 The VPS is only a lightweight dataset coordination and preprocessing machine. Do not run GPU
 training or heavy model work there.

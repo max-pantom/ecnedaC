@@ -305,6 +305,69 @@ def approve_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> list
     _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
     return updated
 
+
+def download_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> list[SourceRecord]:
+    """Download approved URL sources with yt-dlp and update metadata.
+
+    Downloading does not grant training rights. Unverified rights remain excluded
+    from contrastive/training manifests until explicitly updated by a later rights
+    review workflow.
+    """
+
+    enforce_storage_budget(pilot_dir)
+    downloader = shutil.which("yt-dlp")
+    if downloader is None:
+        raise RuntimeError("yt-dlp is required for URL downloads")
+    wanted = set(source_asset_ids)
+    updated: list[SourceRecord] = []
+    for source in _read_sources(pilot_dir):
+        if source.source_asset_id not in wanted:
+            updated.append(source)
+            continue
+        if source.source_state != "approved_source":
+            raise ValueError(f"source must be approved before download: {source.source_asset_id}")
+        output_dir = Path(pilot_dir) / "source-originals" / str(source.source_asset_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        command = [
+            downloader,
+            "--no-playlist",
+            "--restrict-filenames",
+            "--paths",
+            str(output_dir),
+            "--output",
+            "original.%(ext)s",
+            "--print",
+            "after_move:filepath",
+            source.source_url,
+        ]
+        result = subprocess.run(command, check=True, text=True, capture_output=True)
+        downloaded_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not downloaded_lines:
+            raise RuntimeError(f"yt-dlp did not report a downloaded file for {source.source_url}")
+        media = Path(downloaded_lines[-1]).resolve()
+        metadata = _media_metadata(media)
+        eligible = _is_training_eligible(
+            source.license_status, bool(metadata["has_video"]), bool(metadata["has_audio"])
+        ) and source.rights_status != "unverified"
+        updated.append(SourceRecord(**{
+            **asdict(source),
+            "source_asset_id": source.source_asset_id,
+            "media_path": str(media),
+            "checksum_sha256": sha256_file(media),
+            "duration_s": float(metadata["duration_s"]),
+            "fps": float(metadata["fps"]),
+            "width": int(metadata["width"]),
+            "height": int(metadata["height"]),
+            "audio_sample_rate": int(metadata["audio_sample_rate"]),
+            "has_video": bool(metadata["has_video"]),
+            "has_audio": bool(metadata["has_audio"]),
+            "download_status": "downloaded",
+            "eligible_for_contrastive": eligible,
+            "eligible_for_training": eligible,
+        }))
+    _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
+    return updated
+
 def write_source_record(
     pilot_dir: str | Path,
     *,
