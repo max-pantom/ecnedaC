@@ -57,6 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
     ])
     remote.add_argument("--config", default="configs/vps.yaml")
     remote.add_argument("--execute", action="store_true")
+    from cadence.dataset.cli import add_dataset_parsers
+
+    add_dataset_parsers(subparsers)
     return parser
 
 
@@ -131,6 +134,10 @@ def main(argv: list[str] | None = None) -> int:
         from cadence.remote.job import run_remote_action
 
         print(run_remote_action(args.action, load_config(args.config), execute=args.execute))
+    elif args.command in {"dataset", "storage"}:
+        from cadence.dataset.cli import handle_dataset_command
+
+        _json(handle_dataset_command(args))
     return 0
 
 
