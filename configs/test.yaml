@@ -1,0 +1,46 @@
+runtime:
+  profile: test
+  device: cpu
+  seed: 7
+  allow_unsafe_local: false
+  max_samples: 4
+  epochs: 1
+  num_workers: 0
+  microbatch_size: 1
+  contrastive_group_size: 2
+data:
+  clip_seconds: 1.0
+  num_frames: 4
+  frame_size: 32
+  sample_rate: 8000
+  n_mels: 16
+  n_fft: 128
+  hop_length: 80
+  split: train
+encoders:
+  video_base_channels: 4
+  audio_base_channels: 4
+  embed_dim: 16
+  projection_dim: 8
+  sequence_length: 2
+training:
+  learning_rate: 0.001
+  weight_decay: 0.0
+  temperature: 0.07
+  checkpoint_interval_seconds: 600
+  max_steps: 1
+paths:
+  manifest_path: null
+  checkpoint_dir: artifacts/checkpoints
+  report_dir: artifacts/reports
+remote:
+  manifest_uri: s3://cadence-placeholder/manifests/test.jsonl
+  checkpoint_uri: s3://cadence-placeholder/checkpoints/
+  requested_hardware: RTX 4090 24GB
+  dependency_group: training-gpu
+  python_version: "3.12"
+  maximum_budget_usd: 1.0
+  maximum_runtime_minutes: 10
+  vps_host: null
+  vast_instance_id: null
+

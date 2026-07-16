@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cadence-research"
+version = "0.1.0"
+description = "Local training-readiness platform for Cadence audio-visual contrastive research"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "numpy>=1.26,<2",
+  "pydantic>=2.7,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.scripts]
+cadence = "cadence.cli:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.10,<2",
+  "pytest>=8.2,<9",
+  "pytest-cov>=5,<7",
+  "ruff>=0.5,<1",
+  "types-PyYAML>=6.0,<7",
+]
+media = ["av>=12,<16"]
+training-local = [
+  "torch==2.2.2",
+  "torchaudio==2.2.2",
+]
+training-gpu = [
+  "torch==2.11.0",
+  "torchaudio==2.11.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "media", "training-local"]
+conflicts = [
+  [
+    { group = "training-local" },
+    { group = "training-gpu" },
+  ],
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["cadence"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = [
+  "media: requires the PyAV media dependency",
+  "slow: intentionally larger local construction checks",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+packages = ["cadence"]
+
+[[tool.mypy.overrides]]
+module = ["av", "av.*", "torchaudio", "torchaudio.*", "yaml"]
+ignore_missing_imports = true

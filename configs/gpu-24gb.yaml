@@ -1,0 +1,46 @@
+runtime:
+  profile: gpu-24gb
+  device: cuda
+  seed: 1337
+  allow_unsafe_local: false
+  max_samples: null
+  epochs: 20
+  num_workers: 4
+  microbatch_size: 32
+  contrastive_group_size: 32
+data:
+  clip_seconds: 4.0
+  num_frames: 16
+  frame_size: 112
+  sample_rate: 16000
+  n_mels: 128
+  n_fft: 1024
+  hop_length: 160
+  split: train
+encoders:
+  video_base_channels: 64
+  audio_base_channels: 96
+  embed_dim: 256
+  projection_dim: 128
+  sequence_length: 8
+training:
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  temperature: 0.07
+  checkpoint_interval_seconds: 600
+  max_steps: 100000
+paths:
+  manifest_path: null
+  checkpoint_dir: artifacts/checkpoints
+  report_dir: artifacts/reports
+remote:
+  manifest_uri: s3://cadence-placeholder/manifests/train.jsonl
+  checkpoint_uri: s3://cadence-placeholder/checkpoints/
+  requested_hardware: RTX 4090 24GB
+  dependency_group: training-gpu
+  python_version: "3.12"
+  maximum_budget_usd: 25.0
+  maximum_runtime_minutes: 360
+  vps_host: null
+  vast_instance_id: null
+
