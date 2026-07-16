@@ -35,12 +35,28 @@ class ManifestEntry(BaseModel):
     collection_method: str = Field(min_length=1, max_length=100)
     split: Literal["train", "validation", "test"]
     eligible_for_contrastive: bool
-    domain: str = "ui-micro-interactions-product-reveals"
+    domain: str = "launch-video-sound-design"
+    clip_start_s: float | None = Field(default=None, ge=0)
+    clip_end_s: float | None = Field(default=None, gt=0)
+    review_status: Literal["candidate", "approved", "rejected", "quarantined"] = "approved"
+    rejection_reason: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def validate_locator(self) -> ManifestEntry:
         if self.path is None and self.storage_uri is None:
             raise ValueError("either path or storage_uri is required")
+        if self.clip_start_s is not None and self.clip_end_s is not None:
+            if self.clip_end_s <= self.clip_start_s:
+                raise ValueError("clip_end_s must be greater than clip_start_s")
+        quarantined = self.license_status in {
+            "unknown",
+            "unverified",
+            "unverified-research-quarantine",
+        }
+        if quarantined and self.eligible_for_contrastive:
+            raise ValueError("unverified assets must stay excluded from contrastive training")
+        if self.review_status in {"candidate", "rejected", "quarantined"} and self.eligible_for_contrastive:
+            raise ValueError("only approved clips may be eligible for contrastive training")
         return self
 
 
