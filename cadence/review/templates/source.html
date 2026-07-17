@@ -9,12 +9,27 @@
   <dt>Publisher or creator</dt><dd>{{ source.publisher_or_creator or "Unknown" }}</dd>
   <dt>Platform</dt><dd>{{ source.platform or "Unknown" }}</dd>
   <dt>Duration</dt><dd>{{ source.duration_seconds or "Unknown" }}</dd>
-  <dt>Inspection</dt><dd>{{ source.inspection_status }}</dd>
+  <dt>Inspection</dt>
+  <dd><span class="status-badge status-{{ source.inspection_status|replace('_', '-') }}">
+    {{ source.inspection_status|replace('_', ' ') }}
+  </span></dd>
   <dt>Submitted</dt><dd>{{ source.submitted_at }}</dd>
-  <dt>Rights</dt><dd>{{ source.rights_status }}</dd>
-  <dt>Source decision</dt><dd>{{ source.source_approval }}</dd>
-  <dt>Download decision</dt><dd>{{ source.download_approval }}</dd>
-  <dt>Training eligible</dt><dd>{{ source.eligible_for_training }}</dd>
+  <dt>Rights</dt>
+  <dd><span class="status-badge status-{{ source.rights_status|replace('_', '-') }}">
+    {{ source.rights_status|replace('_', ' ') }}
+  </span></dd>
+  <dt>Source decision</dt>
+  <dd><span class="status-badge status-{{ source.source_approval }}">
+    {{ source.source_approval }}
+  </span></dd>
+  <dt>Download decision</dt>
+  <dd><span class="status-badge status-{{ source.download_approval }}">
+    {{ source.download_approval }}
+  </span></dd>
+  <dt>Training eligible</dt>
+  <dd><span class="status-badge status-{{ 'eligible' if source.eligible_for_training else 'ineligible' }}">
+    {{ source.eligible_for_training }}
+  </span></dd>
   <dt>Revision</dt><dd>{{ source.revision }}</dd>
 </dl>
 {% if session.can_mutate and (source.normalized_path or source.storage_path) %}
@@ -34,7 +49,7 @@
     <label>Evidence description <input name="evidence_description" maxlength="500"></label>
     <label>Non-sensitive note <textarea name="license_notes" maxlength="1000"></textarea></label>
     <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
-    <button type="submit">Record rights decision</button>
+    <button class="button-secondary" type="submit">Record rights decision</button>
   </form>
 
   {% for endpoint, heading in [
@@ -48,7 +63,7 @@
     <label>Decision <select name="decision"><option>approved</option><option>rejected</option></select></label>
     <label>Evidence reference <input name="evidence_reference" maxlength="500"></label>
     <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
-    <button type="submit">Record decision</button>
+    <button class="button-secondary" type="submit">Record decision</button>
   </form>
   {% endfor %}
 
@@ -58,7 +73,7 @@
     <input type="hidden" name="expected_revision" value="{{ source.revision }}">
     <label>Eligible <select name="eligible"><option value="true">Yes</option><option value="false">No</option></select></label>
     <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
-    <button type="submit">Record eligibility</button>
+    <button class="button-secondary" type="submit">Record eligibility</button>
   </form>
 </section>
 

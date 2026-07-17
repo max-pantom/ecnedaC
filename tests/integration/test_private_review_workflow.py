@@ -126,6 +126,10 @@ def test_synthetic_submission_is_reviewed_and_built_through_private_console(
     client = TestClient(create_app(config, service=service, auth_secret=ADMIN_SECRET))
     csrf = _login(client)
     headers = {"x-csrf-token": csrf}
+    source_page = client.get(f"/sources/{source.source_id}")
+    assert source_page.status_code == 200
+    assert "Synthetic review acceptance fixture" in source_page.text
+    assert "status-unverified" in source_page.text
 
     rights = client.post(
         f"/api/v1/sources/{source.source_id}/rights",
