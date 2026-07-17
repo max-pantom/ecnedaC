@@ -166,6 +166,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
     for key, raw in os.environ.items():
         if not key.startswith(prefix):
             continue
+        if "__" not in key[len(prefix) :]:
+            continue
         parts = key[len(prefix) :].lower().split("__")
         cursor: dict[str, Any] = data
         for part in parts[:-1]:

@@ -62,3 +62,11 @@ def test_vps_intake_root_inside_repository_is_rejected(
 def test_test_profile_may_use_synthetic_intake_root_inside_repository() -> None:
     config = load_config("configs/test.yaml")
     assert config.paths.intake_root == Path("data/intake").resolve()
+
+
+def test_review_runtime_secret_env_is_not_treated_as_config_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADENCE_REVIEW_ADMIN_SECRET", "s" * 32)
+    config = load_config("configs/vps.yaml")
+    assert config.runtime.profile == "vps"
