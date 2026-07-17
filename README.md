@@ -32,10 +32,16 @@ uv run cadence train-contrastive --config configs/local.yaml
 uv run cadence retrieval-eval --synthetic --config configs/test.yaml
 uv run cadence checkpoint-inspect artifacts/checkpoints/latest.pt
 uv run cadence remote-package --config configs/gpu-24gb.yaml
+uv run cadence runpod-action create --config configs/gpu-24gb.yaml
 ```
 
 Remote scripts are dry-run-first and require both configuration/credentials and `--execute`.
 No remote action is performed as part of local acceptance.
+
+The current GPU packaging target is one RunPod NVIDIA RTX A5000 24 GB with a 30-minute/$1
+synthetic-smoke ceiling and a provisional four-hour/$5 first-run ceiling. These are maximum
+templates, not spend authorization. See
+[the RunPod readiness guide](docs/operations/runpod-gpu.md).
 
 ## Canonical dataset intake
 

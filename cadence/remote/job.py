@@ -20,7 +20,8 @@ from cadence.common.repro import git_commit, stable_hash
 class RemoteJob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["0.1.0"] = "0.1.0"
+    schema_version: Literal["0.2.0"] = "0.2.0"
+    provider: Literal["runpod", "vast"]
     git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
     python_version: Literal["3.12"]
     dependency_group: Literal["training-gpu"]
@@ -34,6 +35,9 @@ class RemoteJob(BaseModel):
     requested_hardware: str
     maximum_budget_usd: float = Field(gt=0)
     maximum_runtime_minutes: int = Field(gt=0)
+    maximum_hourly_price_usd: float = Field(gt=0)
+    synthetic_smoke_maximum_budget_usd: float = Field(gt=0, le=1)
+    synthetic_smoke_maximum_runtime_minutes: int = Field(gt=0, le=30)
     created_at: datetime
 
 
@@ -61,6 +65,7 @@ def package_remote_job(
     if config.remote.python_version != "3.12":
         raise ValueError("GPU remote jobs require Python 3.12")
     return RemoteJob(
+        provider=config.remote.provider,
         git_commit=commit,
         python_version="3.12",
         dependency_group=config.remote.dependency_group,
@@ -74,11 +79,22 @@ def package_remote_job(
         requested_hardware=config.remote.requested_hardware,
         maximum_budget_usd=config.remote.maximum_budget_usd,
         maximum_runtime_minutes=config.remote.maximum_runtime_minutes,
+        maximum_hourly_price_usd=config.remote.maximum_hourly_price_usd,
+        synthetic_smoke_maximum_budget_usd=(
+            config.remote.synthetic_smoke_maximum_budget_usd
+        ),
+        synthetic_smoke_maximum_runtime_minutes=(
+            config.remote.synthetic_smoke_maximum_runtime_minutes
+        ),
         created_at=datetime.now(UTC),
     )
 
 
 def remote_command(action: str, config: CadenceConfig) -> list[str]:
+    if action == "terminate_gpu" and config.remote.provider != "vast":
+        raise ValueError(
+            "terminate_gpu is the legacy Vast.ai action; use runpod-action terminate"
+        )
     host = config.remote.vps_host or os.getenv("CADENCE_VPS_HOST")
     instance = config.remote.vast_instance_id or os.getenv("CADENCE_VAST_INSTANCE_ID")
     commands: dict[str, list[str]] = {

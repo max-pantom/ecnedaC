@@ -27,6 +27,7 @@ def test_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
         "CADENCE_REVIEW_TUNNEL_BASIC_PASSWORD",
         "CADENCE_VPS_HOST",
         "CADENCE_VAST_INSTANCE_ID",
+        "RUNPOD_API_KEY",
     ],
 )
 def test_runtime_only_environment_values_are_not_config_overrides(
@@ -89,3 +90,25 @@ def test_vps_intake_root_inside_repository_is_rejected(
 def test_test_profile_may_use_synthetic_intake_root_inside_repository() -> None:
     config = load_config("configs/test.yaml")
     assert config.paths.intake_root == Path("data/intake").resolve()
+
+
+def test_gpu_profile_targets_bounded_runpod_a5000() -> None:
+    remote = load_config("configs/gpu-24gb.yaml").remote
+
+    assert remote.provider == "runpod"
+    assert remote.requested_hardware == "NVIDIA RTX A5000 24GB"
+    assert remote.runpod_gpu_type_id == "NVIDIA RTX A5000"
+    assert remote.runpod_gpu_count == 1
+    assert remote.maximum_budget_usd == 5
+    assert remote.maximum_runtime_minutes == 240
+    assert remote.synthetic_smoke_maximum_budget_usd == 1
+    assert remote.synthetic_smoke_maximum_runtime_minutes == 30
+
+
+def test_runpod_runtime_and_price_must_fit_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADENCE_REMOTE__MAXIMUM_HOURLY_PRICE_USD", "2")
+
+    with pytest.raises(ValidationError, match="exceed the first-run budget cap"):
+        load_config("configs/gpu-24gb.yaml")

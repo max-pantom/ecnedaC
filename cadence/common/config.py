@@ -81,15 +81,50 @@ class DatasetIntakeConfig(StrictModel):
 
 
 class RemoteConfig(StrictModel):
+    provider: Literal["runpod", "vast"] = "runpod"
     manifest_uri: str = "s3://cadence-placeholder/manifests/train.jsonl"
     checkpoint_uri: str = "s3://cadence-placeholder/checkpoints/"
-    requested_hardware: str = "RTX 4090 24GB"
+    requested_hardware: str = "NVIDIA RTX A5000 24GB"
     dependency_group: Literal["training-gpu"] = "training-gpu"
     python_version: str = "3.12"
-    maximum_budget_usd: float = Field(default=25.0, gt=0)
-    maximum_runtime_minutes: int = Field(default=360, gt=0)
+    maximum_budget_usd: float = Field(default=5.0, gt=0)
+    maximum_runtime_minutes: int = Field(default=240, gt=0, le=240)
+    synthetic_smoke_maximum_budget_usd: float = Field(default=1.0, gt=0, le=1.0)
+    synthetic_smoke_maximum_runtime_minutes: int = Field(default=30, gt=0, le=30)
+    maximum_hourly_price_usd: float = Field(default=0.30, gt=0)
+    runpod_gpu_type_id: Literal["NVIDIA RTX A5000"] = "NVIDIA RTX A5000"
+    runpod_gpu_count: Literal[1] = 1
+    runpod_cloud_type: Literal["COMMUNITY", "SECURE"] = "COMMUNITY"
+    runpod_image_name: str = Field(
+        default="pytorch/pytorch:2.11.0-cuda12.6-cudnn9-devel",
+        min_length=1,
+    )
+    runpod_container_disk_gb: int = Field(default=50, ge=20, le=100)
+    runpod_volume_gb: int = Field(default=0, ge=0, le=100)
+    runpod_pod_name: str = Field(
+        default="cadence-bounded-a5000",
+        pattern=r"^[a-z0-9][a-z0-9-]{2,62}$",
+    )
     vps_host: str | None = None
     vast_instance_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_provider_limits(self) -> RemoteConfig:
+        if self.provider == "runpod" and self.requested_hardware != "NVIDIA RTX A5000 24GB":
+            raise ValueError("RunPod readiness is restricted to NVIDIA RTX A5000 24GB")
+        maximum_compute_cost = (
+            self.maximum_hourly_price_usd * self.maximum_runtime_minutes / 60
+        )
+        if maximum_compute_cost > self.maximum_budget_usd:
+            raise ValueError("maximum runtime and hourly price exceed the first-run budget cap")
+        smoke_compute_cost = (
+            self.maximum_hourly_price_usd
+            * self.synthetic_smoke_maximum_runtime_minutes
+            / 60
+        )
+        if smoke_compute_cost > self.synthetic_smoke_maximum_budget_usd:
+            raise ValueError("smoke runtime and hourly price exceed the smoke budget cap")
+        return self
 
 
 class VpsOperationsConfig(StrictModel):
