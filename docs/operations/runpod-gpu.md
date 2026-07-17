@@ -11,7 +11,7 @@ entry, Pod creation, private-data transfer, spending, or training.
 - one NVIDIA RTX A5000;
 - an hourly-price ceiling of `$0.30`;
 - a synthetic-smoke ceiling of 30 minutes and `$1`;
-- a provisional first-run ceiling of four hours and `$5`;
+- a provisional first-run ceiling of four hours and `$2`;
 - no exposed ports or public IP request;
 - no persistent Pod volume by default;
 - a PyTorch 2.11 / CUDA 12.6 image matching the locked GPU dependency group.
@@ -20,6 +20,11 @@ The budget values are maximum templates, not approvals. RunPod prices and capaci
 the operator must compare the returned hourly price with both the configuration and the current
 [RunPod pricing page](https://www.runpod.io/pricing) immediately before any separately approved
 creation.
+
+At the configured hourly ceiling, four hours of GPU compute is at most `$1.20`. The remaining
+`$0.80` is an emergency allowance for paid startup and storage time, not a target. The 40-step
+first run is expected to cost materially less, but only the synthetic smoke may establish a
+credible measured estimate.
 
 ## Dry-run plans
 

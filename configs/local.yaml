@@ -51,7 +51,7 @@ remote: &remote
   requested_hardware: NVIDIA RTX A5000 24GB
   dependency_group: training-gpu
   python_version: "3.12"
-  maximum_budget_usd: 5.0
+  maximum_budget_usd: 2.0
   maximum_runtime_minutes: 240
   synthetic_smoke_maximum_budget_usd: 1.0
   synthetic_smoke_maximum_runtime_minutes: 30

@@ -59,7 +59,7 @@ def test_runpod_create_plan_is_bounded_and_public_safe() -> None:
     encoded = str(plan.to_dict()).lower()
 
     assert plan.requested_hardware == "NVIDIA RTX A5000 24GB"
-    assert plan.maximum_budget_usd == 5
+    assert plan.maximum_budget_usd == 2
     assert plan.maximum_runtime_minutes == 240
     assert plan.maximum_hourly_price_usd == 0.30
     assert plan.request_body is not None

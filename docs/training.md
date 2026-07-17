@@ -30,7 +30,7 @@ uv run cadence runpod-action create --config configs/gpu-24gb.yaml
 ```
 
 The synthetic smoke template is capped at 30 minutes/$1. The provisional first-run template is
-capped at four hours/$5 with a `$0.30` hourly-price ceiling. These are safety ceilings, not
+capped at four hours/$2 with a `$0.30` hourly-price ceiling. These are safety ceilings, not
 authorization to provision or spend. See
 [RunPod GPU readiness](operations/runpod-gpu.md) for execution and termination gates.
 
@@ -44,3 +44,8 @@ The run is limited to 40 optimizer steps, evaluates the complete validation set 
 checkpoints at clean boundaries, and stops at the frozen time and budget ceilings. Checksum,
 decode, OOM, non-finite, and compatibility failures abort rather than silently changing the run.
 See [the first-run freeze guide](operations/first-run-freeze.md).
+
+The frozen configuration is not a transfer or launch procedure. Before any approved GPU action,
+follow [the private GPU operations runbook](operations/gpu-private-operations.md) for scoped
+runtime secrets, immutable staging, checksum verification, durable checkpoints, fresh-process
+resume, cost alarms, verified termination, and cleanup.

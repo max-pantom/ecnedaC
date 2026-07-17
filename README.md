@@ -41,13 +41,16 @@ Remote scripts are dry-run-first and require both configuration/credentials and 
 No remote action is performed as part of local acceptance.
 
 The current GPU packaging target is one RunPod NVIDIA RTX A5000 24 GB with a 30-minute/$1
-synthetic-smoke ceiling and a provisional four-hour/$5 first-run ceiling. These are maximum
+synthetic-smoke ceiling and a provisional four-hour/$2 first-run ceiling. These are maximum
 templates, not spend authorization. See
 [the RunPod readiness guide](docs/operations/runpod-gpu.md).
 
 The first real run is separately frozen to an exact code/lock/configuration/dataset-handle
 identity. Packaging and validation are local, sanitized, and non-authorizing. See
 [the bounded first-run guide](docs/operations/first-run-freeze.md).
+Private transfer, secret delivery, checkpoint recovery, abort, and verified termination are
+specified separately in
+[the private GPU operations runbook](docs/operations/gpu-private-operations.md).
 
 ## Canonical dataset intake
 
