@@ -53,6 +53,45 @@ class TrainingConfig(StrictModel):
     temperature: float = Field(gt=0)
     checkpoint_interval_seconds: int = Field(gt=0, le=600)
     max_steps: int = Field(gt=0)
+    precision: Literal["fp32", "amp-fp16"] = "fp32"
+    evaluation_interval_steps: int | None = Field(default=None, gt=0)
+
+
+class FirstRunSuccessConfig(StrictModel):
+    required_optimizer_steps: int = Field(gt=0)
+    require_finite_loss_and_gradients: Literal[True] = True
+    require_full_validation_retrieval: Literal[True] = True
+    minimum_recall_at_1_over_chance: float = Field(default=1.0, ge=1.0)
+    require_final_checkpoint: Literal[True] = True
+    require_fresh_process_resume: Literal[True] = True
+
+
+class FirstRunAbortConfig(StrictModel):
+    maximum_oom_events: Literal[0] = 0
+    maximum_decoder_errors: Literal[0] = 0
+    maximum_checksum_mismatches: Literal[0] = 0
+    abort_on_nonfinite_loss_or_gradient: Literal[True] = True
+    abort_on_checkpoint_failure: Literal[True] = True
+    abort_on_compatibility_mismatch: Literal[True] = True
+    soft_stop_runtime_minutes: int = Field(gt=0)
+    hard_stop_runtime_minutes: int = Field(gt=0)
+    hard_stop_budget_usd: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_stop_order(self) -> FirstRunAbortConfig:
+        if self.soft_stop_runtime_minutes >= self.hard_stop_runtime_minutes:
+            raise ValueError("soft stop must occur before the hard runtime stop")
+        return self
+
+
+class FirstRunConfig(StrictModel):
+    enabled: bool = False
+    specification_version: Literal["0.1.0"] = "0.1.0"
+    expected_train_rows: int = Field(default=0, ge=0)
+    expected_validation_rows: int = Field(default=0, ge=0)
+    expected_test_rows: int = Field(default=0, ge=0)
+    success: FirstRunSuccessConfig | None = None
+    abort: FirstRunAbortConfig | None = None
 
 
 class PathsConfig(StrictModel):
@@ -159,6 +198,7 @@ class CadenceConfig(StrictModel):
     paths: PathsConfig
     dataset_intake: DatasetIntakeConfig
     remote: RemoteConfig
+    first_run: FirstRunConfig = Field(default_factory=FirstRunConfig)
     vps_operations: VpsOperationsConfig = Field(default_factory=VpsOperationsConfig)
 
     @model_validator(mode="after")
@@ -182,6 +222,44 @@ class CadenceConfig(StrictModel):
             errors.append("remote manifest paths are disabled")
         if errors:
             raise ValueError("unsafe local configuration: " + "; ".join(errors))
+        return self
+
+    @model_validator(mode="after")
+    def enforce_first_run_freeze(self) -> CadenceConfig:
+        spec = self.first_run
+        if not spec.enabled:
+            return self
+        errors: list[str] = []
+        if self.runtime.profile != "gpu-24gb" or self.runtime.device != "cuda":
+            errors.append("first run requires the gpu-24gb CUDA profile")
+        if self.training.precision != "amp-fp16":
+            errors.append("first run precision must be amp-fp16")
+        if self.training.evaluation_interval_steps is None:
+            errors.append("first run requires an evaluation interval")
+        elif self.training.max_steps % self.training.evaluation_interval_steps != 0:
+            errors.append("first run must evaluate at the final optimizer step")
+        if spec.expected_train_rows < self.runtime.contrastive_group_size:
+            errors.append("first run needs at least one complete contrastive group")
+        if spec.expected_validation_rows < 2:
+            errors.append("first run needs at least two validation rows")
+        if spec.success is None or spec.abort is None:
+            errors.append("first run requires success and abort rules")
+        else:
+            expected_optimizer_steps = self.runtime.epochs * (
+                spec.expected_train_rows // self.runtime.contrastive_group_size
+            )
+            if spec.success.required_optimizer_steps != expected_optimizer_steps:
+                errors.append(
+                    "required_optimizer_steps must match epochs and complete groups"
+                )
+            if self.training.max_steps != spec.success.required_optimizer_steps:
+                errors.append("max_steps must equal required_optimizer_steps")
+            if self.remote.maximum_runtime_minutes != spec.abort.hard_stop_runtime_minutes:
+                errors.append("remote runtime must equal the hard runtime stop")
+            if self.remote.maximum_budget_usd != spec.abort.hard_stop_budget_usd:
+                errors.append("remote budget must equal the hard budget stop")
+        if errors:
+            raise ValueError("invalid first-run freeze: " + "; ".join(errors))
         return self
 
 

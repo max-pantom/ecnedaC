@@ -33,3 +33,14 @@ The synthetic smoke template is capped at 30 minutes/$1. The provisional first-r
 capped at four hours/$5 with a `$0.30` hourly-price ceiling. These are safety ceilings, not
 authorization to provision or spend. See
 [RunPod GPU readiness](operations/runpod-gpu.md) for execution and termination gates.
+
+## Frozen first real run
+
+The exact bounded experiment is checked in as `configs/first-run-v0.1.0.yaml`. Its sanitized
+package binds the experiment to an exact clean Git commit, dependency lock, and opaque approved
+dataset handle without exposing private manifest details. It cannot authorize a launch.
+
+The run is limited to 40 optimizer steps, evaluates the complete validation set every 10 steps,
+checkpoints at clean boundaries, and stops at the frozen time and budget ceilings. Checksum,
+decode, OOM, non-finite, and compatibility failures abort rather than silently changing the run.
+See [the first-run freeze guide](operations/first-run-freeze.md).
