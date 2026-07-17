@@ -50,6 +50,9 @@ from Git.
 A temporary, explicitly executed Wormkey review tunnel does not copy runtime records into Git.
 However, requested pages and previews transit a third-party TLS-terminating edge. Treat its
 short-lived URL and outer credentials as secrets, and close it as soon as human review finishes.
+The read-only reviewer role is authorized to receive an allowlisted source-metadata view through
+that edge. It cannot receive media, storage locations, checksums, license notes, audit history, or
+private evidence.
 
 ## Enforcement
 

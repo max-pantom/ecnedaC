@@ -13,6 +13,7 @@
 | CPU segment suggestion and dataset assembly | Implemented and locally validated with generated media |
 | Private human review console and audit history | Implemented and locally validated through synthetic dataset build |
 | Guarded temporary Wormkey sharing | Implemented and locally validated without opening a real tunnel |
+| Expiring source-metadata-only reviewer access | Implemented and locally validated without exposing a tunnel |
 | Canonical dataset workflow and legacy source migration | Implemented and locally validated |
 | GitHub acceptance CI and GPU dependency verification | Implemented and locally validated |
 | Private VPS exact-release, doctor, and metadata recovery controls | Implemented and locally validated; not remotely executed |

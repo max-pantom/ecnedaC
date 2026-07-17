@@ -5,14 +5,22 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from cadence.common.config import CadenceConfig, load_config
 from cadence.review.app import create_app
-from cadence.review.auth import SESSION_COOKIE, SessionSigner, TunnelBasicAuth
+from cadence.review.auth import (
+    SESSION_COOKIE,
+    AuthenticationError,
+    ReviewSession,
+    SessionSigner,
+    TunnelBasicAuth,
+)
 from cadence.review.models import StaleRevisionError
 
 SECRET = "test-administrator-secret-that-is-long-enough"
+READONLY_SECRET = "test-read-only-secret-that-is-long-enough"
 
 
 class FakeRegistry:
@@ -35,9 +43,10 @@ class FakeService:
     def __init__(self, source: SimpleNamespace) -> None:
         self.registry = FakeRegistry(source)
         self.source = source
+        self.queue: list[object] = []
 
     def review_queue(self) -> list[object]:
-        return []
+        return self.queue
 
     def list_datasets(self) -> list[object]:
         return []
@@ -82,6 +91,24 @@ def _config(tmp_path: Path) -> CadenceConfig:
 def _source(path: Path) -> SimpleNamespace:
     return SimpleNamespace(
         source_id=uuid4(),
+        schema_version="0.1.0",
+        url="https://sources.example.invalid/private-launch",
+        submitted_by="private-operator",
+        collection_method="user-submitted-url",
+        submitted_at="2026-07-17T00:00:00Z",
+        title="Private launch metadata",
+        publisher_or_creator="Example creator",
+        platform="sources.example.invalid",
+        duration_seconds=42.0,
+        content_length_bytes=1234,
+        inspection_status="supported",
+        download_status="not_requested",
+        rights_status="unverified",
+        source_approval="pending",
+        download_approval="pending",
+        eligible_for_training=False,
+        license_notes="must-not-reach-read-only-reviewer",
+        checksum_sha256="a" * 64,
         normalized_path=path,
         storage_path=None,
         revision=3,
@@ -109,6 +136,18 @@ def _login(client: TestClient) -> str:
     token = client.cookies.get(SESSION_COOKIE)
     assert token is not None
     return SessionSigner(SECRET).verify(token).csrf_token
+
+
+def _readonly_login(client: TestClient) -> ReviewSession:
+    response = client.post(
+        "/login",
+        data={"actor": "assistant-reviewer", "secret": READONLY_SECRET},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    token = client.cookies.get(SESSION_COOKIE)
+    assert token is not None
+    return SessionSigner(SECRET).verify(token)
 
 
 def _basic_header(username: str, password: str) -> dict[str, str]:
@@ -147,9 +186,148 @@ def test_login_cookie_is_signed_http_only_and_strict(tmp_path: Path) -> None:
     assert "httponly" in cookie
     assert "samesite=strict" in cookie
     token = client.cookies[SESSION_COOKIE]
-    assert SessionSigner(SECRET).verify(token).actor == "reviewer"
+    session = SessionSigner(SECRET).verify(token)
+    assert session.actor == "reviewer"
+    assert session.role == "administrator"
+    assert session.can_mutate is True
     client.cookies.set(SESSION_COOKIE, f"{token[:-1]}x")
     assert client.get("/api/v1/review/queue").status_code == 401
+
+
+def test_readonly_reviewer_sees_only_allowlisted_source_metadata(tmp_path: Path) -> None:
+    media = tmp_path / "private" / "source.mp4"
+    media.parent.mkdir(parents=True)
+    media.write_bytes(b"private-media-must-not-be-served")
+    service = FakeService(_source(media))
+    app = create_app(
+        _config(tmp_path),
+        service=service,  # type: ignore[arg-type]
+        auth_secret=SECRET,
+        reviewer_secret=READONLY_SECRET,
+        reviewer_session_max_age_seconds=600,
+    )
+    client = TestClient(app)
+
+    session = _readonly_login(client)
+    assert session.role == "reviewer"
+    assert session.can_mutate is False
+    assert session.expires_at - session.issued_at == 600
+
+    service.queue = [
+        SimpleNamespace(entity_type="source", entity_id=service.source.source_id),
+        SimpleNamespace(entity_type="segment", entity_id=uuid4()),
+    ]
+    queue = client.get("/api/v1/review/queue")
+    assert queue.status_code == 200
+    assert [item["entity_type"] for item in queue.json()] == ["source"]
+
+    page = client.get(f"/sources/{service.source.source_id}")
+    assert page.status_code == 200
+    assert "Private launch metadata" in page.text
+    assert "Example creator" in page.text
+    assert str(service.source.url) in page.text
+    assert "Read-only reviewer" in page.text
+    assert "must-not-reach-read-only-reviewer" not in page.text
+    assert "/source-decision" not in page.text
+    assert "/download-decision" not in page.text
+    assert "/eligibility" not in page.text
+    assert "<video" not in page.text
+    assert "Audit trail" not in page.text
+
+    response = client.get(f"/api/v1/sources/{service.source.source_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) == {"source"}
+    assert payload["source"]["title"] == "Private launch metadata"
+    assert payload["source"]["url"] == service.source.url
+    forbidden_fields = {
+        "normalized_path",
+        "storage_path",
+        "storage_uri",
+        "normalized_uri",
+        "checksum_sha256",
+        "license_notes",
+        "canonical_url",
+        "error_state",
+    }
+    assert forbidden_fields.isdisjoint(payload["source"])
+    assert "audit_events" not in payload
+
+
+def test_readonly_reviewer_cannot_mutate_or_access_sensitive_routes(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "private" / "source.mp4"
+    media.parent.mkdir(parents=True)
+    media.write_bytes(b"private-media-must-not-be-served")
+    service = FakeService(_source(media))
+    app = create_app(
+        _config(tmp_path),
+        service=service,  # type: ignore[arg-type]
+        auth_secret=SECRET,
+        reviewer_secret=READONLY_SECRET,
+        reviewer_session_max_age_seconds=600,
+    )
+    client = TestClient(app)
+    session = _readonly_login(client)
+    headers = {"x-csrf-token": session.csrf_token}
+    source_id = service.source.source_id
+
+    mutations = [
+        (
+            f"/api/v1/sources/{source_id}/rights",
+            {"status": "licensed", "reason": "forbidden", "expected_revision": 3},
+        ),
+        (
+            f"/api/v1/sources/{source_id}/source-decision",
+            {"decision": "approved", "reason": "forbidden", "expected_revision": 3},
+        ),
+        (
+            f"/api/v1/sources/{source_id}/download-decision",
+            {"decision": "approved", "reason": "forbidden", "expected_revision": 3},
+        ),
+        (
+            f"/api/v1/sources/{source_id}/eligibility",
+            {"eligible": True, "reason": "forbidden", "expected_revision": 3},
+        ),
+        (
+            f"/api/v1/segments/{uuid4()}/decision",
+            {"decision": "approved", "reason": "forbidden", "expected_revision": 0},
+        ),
+        (
+            "/api/v1/datasets/build",
+            {"dataset_name": "forbidden", "reason": "forbidden", "expected_revision": 0},
+        ),
+    ]
+    for endpoint, payload in mutations:
+        assert client.post(endpoint, json=payload, headers=headers).status_code == 403
+
+    assert client.get(f"/api/v1/media/{source_id}").status_code == 403
+    assert client.get(f"/api/v1/sources/{source_id}/segments").status_code == 403
+    assert client.get(f"/segments/{uuid4()}").status_code == 403
+    assert client.get("/datasets/private-build").status_code == 403
+    assert service.source.revision == 3
+
+
+def test_readonly_session_expiry_and_secret_separation(tmp_path: Path) -> None:
+    signer = SessionSigner(SECRET)
+    token, session = signer.issue(
+        "assistant-reviewer",
+        role="reviewer",
+        max_age_seconds=300,
+    )
+    assert signer.verify(token, now=session.expires_at).role == "reviewer"
+    with pytest.raises(AuthenticationError, match="expired"):
+        signer.verify(token, now=session.expires_at + 1)
+
+    service = FakeService(_source(tmp_path / "private" / "source.mp4"))
+    with pytest.raises(ValueError, match="must be different"):
+        create_app(
+            _config(tmp_path),
+            service=service,  # type: ignore[arg-type]
+            auth_secret=SECRET,
+            reviewer_secret=SECRET,
+        )
 
 
 def test_mutations_are_post_only_and_require_valid_csrf(tmp_path: Path) -> None:
@@ -164,10 +342,7 @@ def test_mutations_are_post_only_and_require_valid_csrf(tmp_path: Path) -> None:
 
     assert client.get(endpoint).status_code == 405
     assert client.post(endpoint, json=body).status_code == 403
-    assert (
-        client.post(endpoint, json=body, headers={"x-csrf-token": "wrong"}).status_code
-        == 403
-    )
+    assert client.post(endpoint, json=body, headers={"x-csrf-token": "wrong"}).status_code == 403
     response = client.post(endpoint, json=body, headers={"x-csrf-token": csrf})
     assert response.status_code == 200
     assert response.json()["revision"] == 3
@@ -222,10 +397,13 @@ def test_registered_media_supports_bounded_ranges(tmp_path: Path) -> None:
     assert response.content == b"2345"
     assert response.headers["content-range"] == "bytes 2-5/10"
     assert response.headers["cache-control"] == "private, no-store"
-    assert client.get(
-        f"/api/v1/media/{service.source.source_id}",
-        headers={"range": "bytes=100-200"},
-    ).status_code == 416
+    assert (
+        client.get(
+            f"/api/v1/media/{service.source.source_id}",
+            headers={"range": "bytes=100-200"},
+        ).status_code
+        == 416
+    )
 
 
 def test_registered_paths_outside_private_intake_root_are_rejected(tmp_path: Path) -> None:

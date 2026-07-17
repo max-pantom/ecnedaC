@@ -5,6 +5,11 @@
 <h1>{{ source.title or "Untitled source" }}</h1>
 <dl>
   <dt>Source ID</dt><dd>{{ source.source_id }}</dd>
+  <dt>Source URL</dt><dd><a href="{{ source.url }}" rel="noreferrer">{{ source.url }}</a></dd>
+  <dt>Publisher or creator</dt><dd>{{ source.publisher_or_creator or "Unknown" }}</dd>
+  <dt>Platform</dt><dd>{{ source.platform or "Unknown" }}</dd>
+  <dt>Duration</dt><dd>{{ source.duration_seconds or "Unknown" }}</dd>
+  <dt>Inspection</dt><dd>{{ source.inspection_status }}</dd>
   <dt>Submitted</dt><dd>{{ source.submitted_at }}</dd>
   <dt>Rights</dt><dd>{{ source.rights_status }}</dd>
   <dt>Source decision</dt><dd>{{ source.source_approval }}</dd>
@@ -12,10 +17,11 @@
   <dt>Training eligible</dt><dd>{{ source.eligible_for_training }}</dd>
   <dt>Revision</dt><dd>{{ source.revision }}</dd>
 </dl>
-{% if source.normalized_path or source.storage_path %}
+{% if session.can_mutate and (source.normalized_path or source.storage_path) %}
 <video controls preload="metadata" src="/api/v1/media/{{ source.source_id }}"></video>
 {% endif %}
 
+{% if session.can_mutate %}
 <section class="grid">
   <form class="panel" method="post" action="/api/v1/sources/{{ source.source_id }}/rights">
     <h2>Rights</h2>
@@ -64,4 +70,11 @@
 
 <h2>Audit trail</h2>
 {% include "audit.html" %}
+{% else %}
+<section class="panel narrow">
+  <h2>Read-only reviewer</h2>
+  <p>Use this metadata to assist relevance review. Administrator retains every decision.</p>
+  <p>Private evidence, license notes, media, audit history, storage details, checksums, and mutation controls are withheld.</p>
+</section>
+{% endif %}
 {% endblock %}

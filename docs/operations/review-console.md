@@ -79,8 +79,22 @@ Cadence pins `wormkey@0.1.5`, binds the review server only to `127.0.0.1`, force
 cookies, applies a login-attempt limit, and adds an independently generated outer Basic Auth
 challenge before the Cadence administrator login. The expiry must be between five minutes and two
 hours. Wormkey output containing owner controls is suppressed; the command emits one JSON object
-containing only the share URL, expiry, and temporary outer username/password. A VPS agent may
-relay that JSON response to the operator. It never emits `CADENCE_REVIEW_ADMIN_SECRET`.
+containing only the share URL, expiry, temporary outer username/password, and a separate ephemeral
+read-only login. A VPS agent may relay that JSON response to the operator. It never emits
+`CADENCE_REVIEW_ADMIN_SECRET`.
+
+The ephemeral login expires no later than the requested tunnel lifetime. Its signed session role
+can inspect only the source queue and allowlisted source metadata: source URL, title, publisher,
+platform, duration, submission metadata, inspection state, decision states, and revision. It
+cannot mutate records or access media bytes, segments, dataset reports, audit events, evidence
+references, license notes, storage paths/URIs, checksums, or processing errors. Server-rendered
+pages hide all mutation forms for this role; API authorization independently enforces the same
+boundary.
+
+The read-only login exists for metadata assistance only. It cannot make a legal or policy
+decision. The administrator remains responsible for every rights, relevance, download, and
+eligibility decision. Relay the temporary credentials only through the trusted agent session and
+never copy them to Git, Linear, shell history, or durable logs.
 
 The command remains in the foreground. The link closes when it expires, the agent stops the
 command, or either process fails; Cadence and Wormkey are cleaned up together. Do not add the

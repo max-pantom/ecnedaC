@@ -2,7 +2,11 @@
 {% block title %}Review queue · Cadence{% endblock %}
 {% block content %}
 <h1>Review queue</h1>
+{% if session.can_mutate %}
 <p>Every decision is revision-checked and written to the private audit log.</p>
+{% else %}
+<p class="notice">Read-only source metadata view. No media, evidence, audit history, or mutation access.</p>
+{% endif %}
 <table>
   <thead><tr><th>Type</th><th>Title</th><th>Stage</th><th>Status</th><th>Revision</th></tr></thead>
   <tbody>
@@ -24,6 +28,7 @@
   </tbody>
 </table>
 
+{% if session.can_mutate %}
 <section class="grid">
   <form class="panel narrow" method="post" action="/api/v1/datasets/build">
     <h2>Build immutable dataset version</h2>
@@ -53,4 +58,5 @@
     </ul>
   </section>
 </section>
+{% endif %}
 {% endblock %}

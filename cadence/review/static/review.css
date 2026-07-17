@@ -43,4 +43,5 @@ dt { color: #9db0ad; font-weight: 700; }
 dd { margin: 0 0 .5rem; overflow-wrap: anywhere; }
 video { background: #000; max-height: 32rem; max-width: 100%; width: 48rem; }
 .error { color: #ffaaa2; }
+.notice { color: #f1d58a; }
 .audit { padding-left: 1.25rem; }

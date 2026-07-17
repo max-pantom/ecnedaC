@@ -32,6 +32,8 @@ def test_review_server_accepts_runtime_secret_without_config_collision(
 ) -> None:
     calls: list[object] = []
     monkeypatch.setenv("CADENCE_REVIEW_ADMIN_SECRET", "s" * 32)
+    monkeypatch.setenv("CADENCE_REVIEW_READONLY_SECRET", "r" * 32)
+    monkeypatch.setenv("CADENCE_REVIEW_READONLY_MAX_AGE_SECONDS", "900")
     monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: calls.append((app, kwargs)))
 
     assert main(["review-serve", "--config", "configs/test.yaml"]) == 0
@@ -72,6 +74,7 @@ def test_wormkey_share_plan_is_pinned_guarded_and_dry_run() -> None:
         "30m",
     )
     assert any("Basic authentication" in protection for protection in plan.protections)
+    assert any("source-metadata-only" in protection for protection in plan.protections)
 
 
 @pytest.mark.parametrize("expires", ["4m", "121m", "3h", "forever", "0m"])
@@ -183,10 +186,21 @@ def test_wormkey_execution_emits_only_relay_credentials_and_sanitizes_environmen
     relay = json.loads(capsys.readouterr().out)
     assert relay["url"] == "https://wormkey.run/s/quiet-lime-82"
     assert relay["basic_auth"] == {"username": "cadence", "password": "p" * 32}
+    assert relay["reviewer_login"] == {
+        "secret": "p" * 32,
+        "role": "reviewer",
+        "max_age_seconds": 1800,
+    }
+    assert relay["cadence_admin_secret"] == "provisioned-on-vps-and-not-emitted"
+    server_environment = calls[0][1]["env"]
+    assert isinstance(server_environment, dict)
+    assert server_environment["CADENCE_REVIEW_READONLY_SECRET"] == "p" * 32
+    assert server_environment["CADENCE_REVIEW_READONLY_MAX_AGE_SECONDS"] == "1800"
     tunnel_command, tunnel_options = calls[1]
     assert tunnel_command[0] == "/usr/bin/npx"
     assert "--auth" not in tunnel_command
     tunnel_environment = tunnel_options["env"]
     assert isinstance(tunnel_environment, dict)
     assert "CADENCE_REVIEW_ADMIN_SECRET" not in tunnel_environment
+    assert "CADENCE_REVIEW_READONLY_SECRET" not in tunnel_environment
     assert "VAST_API_KEY" not in tunnel_environment

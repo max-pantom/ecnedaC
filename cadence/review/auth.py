@@ -12,10 +12,13 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal, TypeAlias, cast
 
 SESSION_COOKIE: Final = "cadence_review_session"
 SESSION_MAX_AGE_SECONDS: Final = 8 * 60 * 60
+READONLY_SESSION_MAX_AGE_SECONDS: Final = 2 * 60 * 60
+READONLY_SESSION_MIN_AGE_SECONDS: Final = 5 * 60
+SessionRole: TypeAlias = Literal["administrator", "reviewer"]
 
 
 class AuthenticationError(ValueError):
@@ -27,6 +30,12 @@ class ReviewSession:
     actor: str
     csrf_token: str
     issued_at: int
+    expires_at: int
+    role: SessionRole
+
+    @property
+    def can_mutate(self) -> bool:
+        return self.role == "administrator"
 
 
 @dataclass(frozen=True)
@@ -92,12 +101,38 @@ def configured_secret(explicit: str | None = None) -> str:
     """Return the administrator secret without ever supplying an unsafe default."""
     secret = explicit or os.getenv("CADENCE_REVIEW_ADMIN_SECRET")
     if not secret:
-        raise ValueError(
-            "review UI requires auth_secret or CADENCE_REVIEW_ADMIN_SECRET"
-        )
+        raise ValueError("review UI requires auth_secret or CADENCE_REVIEW_ADMIN_SECRET")
     if len(secret) < 32:
         raise ValueError("review UI administrator secret must contain at least 32 characters")
     return secret
+
+
+def configured_reviewer_secret(explicit: str | None = None) -> str | None:
+    """Return optional runtime-only read-only access secret."""
+    secret = explicit or os.getenv("CADENCE_REVIEW_READONLY_SECRET")
+    if not secret:
+        return None
+    if len(secret) < 32:
+        raise ValueError("review UI read-only secret must contain at least 32 characters")
+    return secret
+
+
+def configured_reviewer_session_max_age(explicit: int | None = None) -> int:
+    """Return bounded read-only session lifetime."""
+    raw = explicit
+    if raw is None:
+        environment_value = os.getenv("CADENCE_REVIEW_READONLY_MAX_AGE_SECONDS")
+        if environment_value:
+            try:
+                raw = int(environment_value)
+            except ValueError as exc:
+                raise ValueError(
+                    "CADENCE_REVIEW_READONLY_MAX_AGE_SECONDS must be an integer"
+                ) from exc
+    seconds = READONLY_SESSION_MAX_AGE_SECONDS if raw is None else raw
+    if not READONLY_SESSION_MIN_AGE_SECONDS <= seconds <= READONLY_SESSION_MAX_AGE_SECONDS:
+        raise ValueError("read-only session lifetime must be between 300 and 7200 seconds")
+    return seconds
 
 
 class SessionSigner:
@@ -109,20 +144,34 @@ class SessionSigner:
         self._key = hashlib.sha256(f"cadence-review-session:{secret}".encode()).digest()
         self.max_age_seconds = max_age_seconds
 
-    def issue(self, actor: str) -> tuple[str, ReviewSession]:
+    def issue(
+        self,
+        actor: str,
+        *,
+        role: SessionRole = "administrator",
+        max_age_seconds: int | None = None,
+    ) -> tuple[str, ReviewSession]:
         normalized_actor = actor.strip()
         if not normalized_actor or len(normalized_actor) > 100:
             raise ValueError("actor must contain between 1 and 100 characters")
+        lifetime = self.max_age_seconds if max_age_seconds is None else max_age_seconds
+        if not 1 <= lifetime <= self.max_age_seconds:
+            raise ValueError("session lifetime exceeds signer maximum")
+        issued_at = int(time.time())
         session = ReviewSession(
             actor=normalized_actor,
             csrf_token=secrets.token_urlsafe(32),
-            issued_at=int(time.time()),
+            issued_at=issued_at,
+            expires_at=issued_at + lifetime,
+            role=role,
         )
         payload = json.dumps(
             {
                 "actor": session.actor,
                 "csrf": session.csrf_token,
                 "issued_at": session.issued_at,
+                "expires_at": session.expires_at,
+                "role": session.role,
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -134,9 +183,7 @@ class SessionSigner:
     def verify(self, token: str, *, now: int | None = None) -> ReviewSession:
         try:
             encoded, supplied_signature = token.split(".", 1)
-            expected_signature = _encode(
-                hmac.digest(self._key, encoded.encode(), "sha256")
-            )
+            expected_signature = _encode(hmac.digest(self._key, encoded.encode(), "sha256"))
             if not hmac.compare_digest(supplied_signature, expected_signature):
                 raise AuthenticationError("invalid session signature")
             raw = json.loads(_decode(encoded))
@@ -144,6 +191,8 @@ class SessionSigner:
                 actor=str(raw["actor"]),
                 csrf_token=str(raw["csrf"]),
                 issued_at=int(raw["issued_at"]),
+                expires_at=int(raw["expires_at"]),
+                role=cast(SessionRole, str(raw["role"])),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             if isinstance(exc, AuthenticationError):
@@ -152,9 +201,20 @@ class SessionSigner:
 
         current_time = int(time.time()) if now is None else now
         age = current_time - session.issued_at
-        if age < -60 or age > self.max_age_seconds:
+        if (
+            age < -60
+            or age > self.max_age_seconds
+            or current_time > session.expires_at
+            or session.expires_at <= session.issued_at
+            or session.expires_at - session.issued_at > self.max_age_seconds
+        ):
             raise AuthenticationError("session expired")
-        if not session.actor or len(session.actor) > 100 or not session.csrf_token:
+        if (
+            not session.actor
+            or len(session.actor) > 100
+            or not session.csrf_token
+            or session.role not in {"administrator", "reviewer"}
+        ):
             raise AuthenticationError("invalid session claims")
         return session
 

@@ -12,7 +12,7 @@
     <header>
       <a href="/">Cadence private review</a>
       {% if session %}
-      <span>Signed in as {{ session.actor }}</span>
+      <span>Signed in as {{ session.actor }} · {{ session.role }}</span>
       <form method="post" action="/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">Sign out</button>
