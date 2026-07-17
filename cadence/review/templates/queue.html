@@ -12,15 +12,21 @@
   <tbody>
   {% for item in items %}
     <tr>
-      <td>{{ item.entity_type }}</td>
-      <td>
+      <td data-label="Type">{{ item.entity_type }}</td>
+      <td data-label="Title">
         {% if item.entity_type == "source" %}
           <a href="/sources/{{ item.entity_id }}">{{ item.title }}</a>
         {% else %}
           <a href="/segments/{{ item.entity_id }}">{{ item.title }}</a>
         {% endif %}
       </td>
-      <td>{{ item.stage }}</td><td>{{ item.status }}</td><td>{{ item.revision }}</td>
+      <td data-label="Stage">{{ item.stage }}</td>
+      <td data-label="Status">
+        <span class="status-badge status-{{ item.status|replace('_', '-') }}">
+          {{ item.status|replace('_', ' ') }}
+        </span>
+      </td>
+      <td data-label="Revision">{{ item.revision }}</td>
     </tr>
   {% else %}
     <tr><td colspan="5">Nothing currently needs review.</td></tr>
@@ -41,7 +47,7 @@
     </label>
     <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
     <label>Evidence reference <input name="evidence_reference" maxlength="500"></label>
-    <button type="submit">Build private dataset</button>
+    <button class="button-secondary" type="submit">Build private dataset</button>
   </form>
 
   <section class="panel">

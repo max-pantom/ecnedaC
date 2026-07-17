@@ -6,7 +6,11 @@
 <video controls preload="metadata" src="/api/v1/media/{{ segment.segment_id }}"></video>
 <dl>
   <dt>Reason suggested</dt><dd>{{ segment.reason }}</dd>
-  <dt>Status</dt><dd>{{ segment.approval_status }}</dd>
+  <dt>Status</dt><dd>
+    <span class="status-badge status-{{ segment.approval_status }}">
+      {{ segment.approval_status }}
+    </span>
+  </dd>
   <dt>Revision</dt><dd>{{ segment.revision }}</dd>
 </dl>
 <form class="panel narrow" method="post" action="/api/v1/segments/{{ segment.segment_id }}/decision">
@@ -15,7 +19,7 @@
   <label>Decision <select name="decision"><option>approved</option><option>rejected</option></select></label>
   <label>Evidence reference <input name="evidence_reference" maxlength="500"></label>
   <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
-  <button type="submit">Record segment decision</button>
+  <button class="button-secondary" type="submit">Record segment decision</button>
 </form>
 <h2>Audit trail</h2>
 {% include "audit.html" %}

@@ -10,13 +10,16 @@
   </head>
   <body>
     <header>
-      <a href="/">Cadence private review</a>
+      <a class="brand" href="/">Cadence private review</a>
       {% if session %}
-      <span>Signed in as {{ session.actor }} · {{ session.role }}</span>
-      <form method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">Sign out</button>
-      </form>
+      <div>
+        <span>Signed in as {{ session.actor }}</span>
+        <span class="status-badge status-{{ session.role }}">{{ session.role }}</span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">Sign out</button>
+        </form>
+      </div>
       {% endif %}
     </header>
     <main>{% block content %}{% endblock %}</main>
