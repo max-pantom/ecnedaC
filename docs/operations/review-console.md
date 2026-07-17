@@ -5,6 +5,10 @@ second copy of rights, approval, eligibility, or dataset-build rules.
 
 ## Install on the VPS
 
+The preferred exact-release preparation flow is documented in
+[`vps-deployment.md`](vps-deployment.md). Its wrapper is dry-run-first, requires a full approved Git
+SHA, and does not start the console.
+
 ```bash
 uv sync --no-default-groups --group media --group operations-ui
 uv run cadence config-check --config configs/vps.yaml
@@ -33,6 +37,15 @@ ssh -L 8787:127.0.0.1:8787 <vps-host>
 
 Then open `http://127.0.0.1:8787`. The session cookie is signed, `HttpOnly`, and
 `SameSite=Strict`. Every mutation also requires its session-bound CSRF token.
+
+After starting the console, verify the loopback health endpoint and the rest of the deployment
+controls together:
+
+```bash
+uv run --no-sync cadence vps --config configs/vps.yaml doctor \
+  --expected-commit <full-approved-40-character-sha> \
+  --require-health
+```
 
 Do not expose the default console publicly. A non-loopback bind is refused unless both
 `--allow-non-loopback` and `CADENCE_REVIEW_SECURE_DEPLOYMENT=true` are present. That override is
@@ -116,3 +129,7 @@ root and is never committed.
 - Revision conflict: reload the source or segment and review the intervening state change.
 - Invalid state transition: resolve the unmet rights, approval, download, or normalization gate.
 - Suspected path escape: stop the console and inspect the registry and intake-root ownership.
+
+Private metadata backup, isolated restore rehearsal, retention, and sanitized deployment evidence
+are documented in [`vps-deployment.md`](vps-deployment.md). Those backups exclude source media,
+candidate clips, credentials, and license evidence contents.

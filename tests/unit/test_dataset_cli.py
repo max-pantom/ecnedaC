@@ -21,9 +21,13 @@ def test_required_dataset_cli_shapes_parse() -> None:
         ["dataset", "report", "launch-pilot"],
         ["dataset", "legacy-import", "/srv/cadence/legacy-pilot"],
         ["storage", "report"],
+        ["vps", "prepare"],
+        ["vps", "doctor", "--expected-commit", "a" * 40],
+        ["vps", "backup"],
+        ["vps", "restore-rehearsal", "vps-metadata-20260717T120000Z-deadbeef"],
     ]
     for command in commands:
-        assert parser.parse_args(command).command in {"dataset", "storage"}
+        assert parser.parse_args(command).command in {"dataset", "storage", "vps"}
 
 
 def test_removed_pilot_workflow_is_not_exposed() -> None:
