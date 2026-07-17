@@ -99,7 +99,7 @@ def test_gpu_profile_targets_bounded_runpod_a5000() -> None:
     assert remote.requested_hardware == "NVIDIA RTX A5000 24GB"
     assert remote.runpod_gpu_type_id == "NVIDIA RTX A5000"
     assert remote.runpod_gpu_count == 1
-    assert remote.maximum_budget_usd == 5
+    assert remote.maximum_budget_usd == 2
     assert remote.maximum_runtime_minutes == 240
     assert remote.synthetic_smoke_maximum_budget_usd == 1
     assert remote.synthetic_smoke_maximum_runtime_minutes == 30

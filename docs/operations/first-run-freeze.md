@@ -37,7 +37,7 @@ diagnostic only.
 Abort immediately on an out-of-memory event, decoder error, checksum mismatch, non-finite loss or
 gradient, checkpoint failure, or checkpoint/configuration/manifest/lock incompatibility. There
 is no automatic batch-size reduction and no skipped media. Stop cleanly at the next optimizer
-boundary after 210 minutes. The hard ceilings are 240 minutes, `$5` total, and `$0.30` per hour.
+boundary after 210 minutes. The hard ceilings are 240 minutes, `$2` total, and `$0.30` per hour.
 These ceilings do not authorize spend.
 
 ## Package and validate

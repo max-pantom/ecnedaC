@@ -39,7 +39,7 @@ class RunPodPlan(BaseModel):
     plan_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     requested_hardware: Literal["NVIDIA RTX A5000 24GB"]
     maximum_hourly_price_usd: float = Field(gt=0)
-    maximum_budget_usd: float = Field(gt=0, le=5)
+    maximum_budget_usd: float = Field(gt=0, le=2)
     maximum_runtime_minutes: int = Field(gt=0, le=240)
     warnings: tuple[str, ...]
 

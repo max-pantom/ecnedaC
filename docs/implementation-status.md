@@ -18,6 +18,7 @@
 | GitHub acceptance CI and GPU dependency verification | Implemented and locally validated |
 | Private VPS exact-release, doctor, and metadata recovery controls | Implemented and locally validated; not remotely executed |
 | Bounded first-run freeze, validation cadence, and abort rules | Implemented and locally validated; launch remains unauthorized |
+| Private GPU transfer, secrets, checkpoint, termination, and recovery runbook | Implemented and locally validated; no remote operation performed |
 
 No component is remotely smoke-tested, trained, evaluated on real data, or production-ready.
 

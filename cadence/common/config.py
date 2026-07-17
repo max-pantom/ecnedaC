@@ -126,7 +126,7 @@ class RemoteConfig(StrictModel):
     requested_hardware: str = "NVIDIA RTX A5000 24GB"
     dependency_group: Literal["training-gpu"] = "training-gpu"
     python_version: str = "3.12"
-    maximum_budget_usd: float = Field(default=5.0, gt=0)
+    maximum_budget_usd: float = Field(default=2.0, gt=0, le=2.0)
     maximum_runtime_minutes: int = Field(default=240, gt=0, le=240)
     synthetic_smoke_maximum_budget_usd: float = Field(default=1.0, gt=0, le=1.0)
     synthetic_smoke_maximum_runtime_minutes: int = Field(default=30, gt=0, le=30)
