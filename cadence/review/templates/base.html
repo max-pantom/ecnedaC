@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <title>{% block title %}Cadence review{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/review.css') }}">
-    <script defer src="{{ url_for('static', path='/review.js') }}"></script>
+    <style>{{ review_css|safe }}</style>
   </head>
   <body>
     <header>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -165,6 +166,25 @@ def test_health_is_public_but_review_endpoints_require_authentication(tmp_path: 
     assert client.get("/").status_code == 200  # TestClient follows the login redirect.
     assert client.get("/api/v1/review/queue").status_code == 401
     assert client.get(f"/api/v1/media/{service.source.source_id}").status_code == 401
+
+
+def test_console_style_is_embedded_and_allowed_by_csp(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, tmp_path / "private" / "source.mp4")
+
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    assert '<link rel="stylesheet"' not in login_page.text
+    style = login_page.text.split("<style>", 1)[1].split("</style>", 1)[0]
+    style_hash = base64.b64encode(hashlib.sha256(style.encode()).digest()).decode()
+    assert f"'sha256-{style_hash}'" in login_page.headers["content-security-policy"]
+    assert ".centered-card" in style
+
+    _login(client)
+    queue_page = client.get("/")
+    assert queue_page.status_code == 200
+    assert 'class="page-heading"' in queue_page.text
+    assert 'class="panel queue-panel"' in queue_page.text
+    assert 'class="empty-state"' in queue_page.text
 
 
 def test_login_cookie_is_signed_http_only_and_strict(tmp_path: Path) -> None:

@@ -1,42 +1,48 @@
 {% extends "base.html" %}
 {% block title %}Review queue · Cadence{% endblock %}
 {% block content %}
-<h1>Review queue</h1>
-{% if session.can_mutate %}
-<p>Every decision is revision-checked and written to the private audit log.</p>
-{% else %}
-<p class="notice">Read-only source metadata view. No media, evidence, audit history, or mutation access.</p>
-{% endif %}
-<table>
-  <thead><tr><th>Type</th><th>Title</th><th>Stage</th><th>Status</th><th>Revision</th></tr></thead>
-  <tbody>
-  {% for item in items %}
-    <tr>
-      <td data-label="Type">{{ item.entity_type }}</td>
-      <td data-label="Title">
-        {% if item.entity_type == "source" %}
-          <a href="/sources/{{ item.entity_id }}">{{ item.title }}</a>
-        {% else %}
-          <a href="/segments/{{ item.entity_id }}">{{ item.title }}</a>
-        {% endif %}
-      </td>
-      <td data-label="Stage">{{ item.stage }}</td>
-      <td data-label="Status">
-        <span class="status-badge status-{{ item.status|replace('_', '-') }}">
-          {{ item.status|replace('_', ' ') }}
-        </span>
-      </td>
-      <td data-label="Revision">{{ item.revision }}</td>
-    </tr>
+<section class="page-heading">
+  <p class="eyebrow">Private dataset operations</p>
+  <h1>Review queue</h1>
+  {% if session.can_mutate %}
+  <p>Every decision is revision-checked and written to the private audit log.</p>
   {% else %}
-    <tr><td colspan="5">Nothing currently needs review.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+  <p class="notice">Read-only source metadata view. No media, evidence, audit history, or mutation access.</p>
+  {% endif %}
+</section>
+
+<section class="panel queue-panel" aria-label="Items awaiting review">
+  <table>
+    <thead><tr><th>Type</th><th>Title</th><th>Stage</th><th>Status</th><th>Revision</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr>
+        <td data-label="Type">{{ item.entity_type }}</td>
+        <td data-label="Title">
+          {% if item.entity_type == "source" %}
+            <a href="/sources/{{ item.entity_id }}">{{ item.title }}</a>
+          {% else %}
+            <a href="/segments/{{ item.entity_id }}">{{ item.title }}</a>
+          {% endif %}
+        </td>
+        <td data-label="Stage">{{ item.stage }}</td>
+        <td data-label="Status">
+          <span class="status-badge status-{{ item.status|replace('_', '-') }}">
+            {{ item.status|replace('_', ' ') }}
+          </span>
+        </td>
+        <td data-label="Revision">{{ item.revision }}</td>
+      </tr>
+    {% else %}
+      <tr><td class="empty-state" colspan="5">Nothing currently needs review.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
 
 {% if session.can_mutate %}
-<section class="grid">
-  <form class="panel narrow" method="post" action="/api/v1/datasets/build">
+<section class="grid review-actions">
+  <form class="panel" method="post" action="/api/v1/datasets/build">
     <h2>Build immutable dataset version</h2>
     <p>Only approved segments from currently eligible sources are included.</p>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
