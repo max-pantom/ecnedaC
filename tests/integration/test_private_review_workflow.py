@@ -130,6 +130,7 @@ def test_synthetic_submission_is_reviewed_and_built_through_private_console(
     assert source_page.status_code == 200
     assert "Synthetic review acceptance fixture" in source_page.text
     assert "status-unverified" in source_page.text
+    assert "Training eligibility locked" in source_page.text
 
     rights = client.post(
         f"/api/v1/sources/{source.source_id}/rights",
@@ -169,6 +170,10 @@ def test_synthetic_submission_is_reviewed_and_built_through_private_console(
     downloaded = service.download_source(source.source_id)
     assert downloaded.normalized_path is not None
     assert downloaded.normalized_path.is_relative_to(config.paths.intake_root)
+    eligibility_page = client.get(f"/sources/{source.source_id}")
+    assert eligibility_page.status_code == 200
+    assert "Training eligibility locked" not in eligibility_page.text
+    assert f"/api/v1/sources/{source.source_id}/eligibility" in eligibility_page.text
 
     eligibility = client.post(
         f"/api/v1/sources/{source.source_id}/eligibility",

@@ -365,6 +365,18 @@ def test_server_rendered_form_mutation_returns_to_record(tmp_path: Path) -> None
     assert response.headers["location"] == f"/sources/{service.source.source_id}"
 
 
+def test_training_eligibility_form_is_locked_until_normalization(tmp_path: Path) -> None:
+    client, service = _client(tmp_path, tmp_path / "private" / "source.mp4")
+    _login(client)
+
+    page = client.get(f"/sources/{service.source.source_id}")
+
+    assert page.status_code == 200
+    assert "Training eligibility locked" in page.text
+    assert "requires a normalized download" not in page.text
+    assert f"/api/v1/sources/{service.source.source_id}/eligibility" not in page.text
+
+
 def test_stale_revision_returns_conflict_details(tmp_path: Path) -> None:
     client, service = _client(tmp_path, tmp_path / "private" / "source.mp4")
     csrf = _login(client)

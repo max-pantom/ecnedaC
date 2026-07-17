@@ -18,7 +18,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from cadence.common.config import CadenceConfig
 from cadence.dataset.downloaders import DirectHTTPDownloader, DownloaderChain, YtDlpDownloader
 from cadence.dataset.media import FFmpegMediaProcessor
-from cadence.dataset.records import ApprovalStatus, RightsStatus, SourceRecord
+from cadence.dataset.records import (
+    PERMITTED_RIGHTS,
+    ApprovalStatus,
+    DownloadStatus,
+    RightsStatus,
+    SourceRecord,
+)
 from cadence.dataset.service import GIB, DatasetIntakeService
 from cadence.review.auth import (
     SESSION_COOKIE,
@@ -286,6 +292,7 @@ def create_app(
                 "segments": segments,
                 "events": events,
                 "rights_statuses": list(RightsStatus),
+                "eligibility_ready": _eligibility_ready(source),
             },
         )
 
@@ -620,3 +627,16 @@ def _source_metadata(source: SourceRecord) -> dict[str, object]:
         "download_approval": source.download_approval,
         "eligible_for_training": source.eligible_for_training,
     }
+
+
+def _eligibility_ready(source: SourceRecord) -> bool:
+    return (
+        source.rights_status in PERMITTED_RIGHTS
+        and source.source_approval == ApprovalStatus.APPROVED
+        and source.download_approval == ApprovalStatus.APPROVED
+        and source.download_status
+        in {
+            DownloadStatus.NORMALIZED,
+            DownloadStatus.DUPLICATE,
+        }
+    )

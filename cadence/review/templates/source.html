@@ -67,6 +67,7 @@
   </form>
   {% endfor %}
 
+  {% if eligibility_ready %}
   <form class="panel" method="post" action="/api/v1/sources/{{ source.source_id }}/eligibility">
     <h2>Training eligibility</h2>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -75,6 +76,20 @@
     <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
     <button class="button-secondary" type="submit">Record eligibility</button>
   </form>
+  {% else %}
+  <section class="panel">
+    <h2>Training eligibility locked</h2>
+    <p class="notice">
+      Available only after permitted rights, source approval, download approval,
+      and successful normalization.
+    </p>
+    <p>Current download status:
+      <span class="status-badge status-{{ source.download_status|replace('_', '-') }}">
+        {{ source.download_status|replace('_', ' ') }}
+      </span>
+    </p>
+  </section>
+  {% endif %}
 </section>
 
 <h2>Segments</h2>
