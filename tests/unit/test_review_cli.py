@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+import uvicorn
 
 import cadence.review.share as review_share
 from cadence.cli import _is_loopback_host, main
@@ -24,6 +25,17 @@ def test_review_server_requires_runtime_secret(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(ValueError, match="at least 32 characters"):
         main(["review-serve", "--config", "configs/test.yaml"])
+
+
+def test_review_server_accepts_runtime_secret_without_config_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setenv("CADENCE_REVIEW_ADMIN_SECRET", "s" * 32)
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: calls.append((app, kwargs)))
+
+    assert main(["review-serve", "--config", "configs/test.yaml"]) == 0
+    assert len(calls) == 1
 
 
 def test_non_loopback_review_server_requires_both_safety_overrides(

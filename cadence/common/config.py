@@ -166,7 +166,15 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
     for key, raw in os.environ.items():
         if not key.startswith(prefix):
             continue
-        parts = key[len(prefix) :].lower().split("__")
+        override = key[len(prefix) :]
+        # Typed configuration overrides always use a double underscore between
+        # model fields. Single-level CADENCE_* names belong to runtime consumers
+        # such as review authentication, tunnel controls, and remote credentials.
+        if "__" not in override:
+            continue
+        parts = override.lower().split("__")
+        if any(not part for part in parts):
+            raise ValueError(f"invalid environment override path: {key}")
         cursor: dict[str, Any] = data
         for part in parts[:-1]:
             child = cursor.setdefault(part, {})

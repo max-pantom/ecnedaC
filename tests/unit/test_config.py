@@ -19,6 +19,33 @@ def test_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
+    "key",
+    [
+        "CADENCE_REVIEW_ADMIN_SECRET",
+        "CADENCE_REVIEW_SECURE_DEPLOYMENT",
+        "CADENCE_REVIEW_TUNNEL_BASIC_USERNAME",
+        "CADENCE_REVIEW_TUNNEL_BASIC_PASSWORD",
+        "CADENCE_VPS_HOST",
+        "CADENCE_VAST_INSTANCE_ID",
+    ],
+)
+def test_runtime_only_environment_values_are_not_config_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+) -> None:
+    monkeypatch.setenv(key, "runtime-only-value")
+    assert load_config("configs/local.yaml").runtime.profile == "local"
+
+
+def test_malformed_environment_override_path_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADENCE_RUNTIME____SEED", "99")
+    with pytest.raises(ValueError, match="invalid environment override path"):
+        load_config("configs/local.yaml")
+
+
+@pytest.mark.parametrize(
     ("key", "value"),
     [
         ("CADENCE_RUNTIME__DEVICE", "cuda"),
