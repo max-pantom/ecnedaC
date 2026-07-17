@@ -75,6 +75,20 @@ make data-policy
 
 See [the private-data operations policy](docs/operations/private-data-boundary.md).
 
+## Human review console
+
+The private VPS review console presents the existing rights, approval, eligibility, segment, and
+dataset-build operations without duplicating their service rules:
+
+```bash
+uv sync --group operations-ui
+export CADENCE_REVIEW_ADMIN_SECRET="<runtime-secret-of-at-least-32-characters>"
+uv run --group operations-ui cadence review-serve --config configs/vps.yaml
+```
+
+It binds to loopback by default and should be reached through an SSH tunnel. See
+[the review-console operations guide](docs/operations/review-console.md).
+
 ## Launch-video research workflow
 
 This branch also retains the earlier file-oriented launch-video pilot. Its commands live under

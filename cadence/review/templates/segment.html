@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Segment {{ segment.segment_id }} · Cadence{% endblock %}
+{% block content %}
+<p><a href="/sources/{{ source.source_id }}">← Source</a></p>
+<h1>Segment {{ segment.start_seconds }}–{{ segment.end_seconds }} s</h1>
+<video controls preload="metadata" src="/api/v1/media/{{ segment.segment_id }}"></video>
+<dl>
+  <dt>Reason suggested</dt><dd>{{ segment.reason }}</dd>
+  <dt>Status</dt><dd>{{ segment.approval_status }}</dd>
+  <dt>Revision</dt><dd>{{ segment.revision }}</dd>
+</dl>
+<form class="panel narrow" method="post" action="/api/v1/segments/{{ segment.segment_id }}/decision">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="expected_revision" value="{{ segment.revision }}">
+  <label>Decision <select name="decision"><option>approved</option><option>rejected</option></select></label>
+  <label>Evidence reference <input name="evidence_reference" maxlength="500"></label>
+  <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
+  <button type="submit">Record segment decision</button>
+</form>
+<h2>Audit trail</h2>
+{% include "audit.html" %}
+{% endblock %}

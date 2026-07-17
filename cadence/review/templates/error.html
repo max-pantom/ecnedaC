@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Review conflict · Cadence{% endblock %}
+{% block content %}
+<section class="panel narrow">
+  <h1>Review could not be recorded</h1>
+  <p>{{ detail }}</p>
+  {% if actual_revision is defined %}
+    <p>The current revision is {{ actual_revision }}. Reload the record before deciding again.</p>
+  {% endif %}
+  <p><a href="/">Return to the review queue</a></p>
+</section>
+{% endblock %}

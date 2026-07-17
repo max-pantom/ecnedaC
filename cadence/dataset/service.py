@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID
 
@@ -28,6 +29,16 @@ from cadence.ingestion.manifest import (
     deterministic_split,
     sha256_file,
     write_manifest,
+)
+from cadence.review.models import (
+    AuditEvent,
+    EvidenceReference,
+    ReviewAction,
+    ReviewEntityType,
+    ReviewQueueItem,
+    ReviewStage,
+    ReviewStateValue,
+    StaleRevisionError,
 )
 from cadence.storage.base import LocalFilesystemStorage
 
@@ -90,12 +101,104 @@ class DatasetIntakeService:
     def list_sources(self) -> list[SourceRecord]:
         return sorted(self.registry.load().sources.values(), key=lambda source: source.submitted_at)
 
+    def list_datasets(self) -> list[DatasetRecord]:
+        return sorted(
+            self.registry.load().datasets.values(),
+            key=lambda dataset: (dataset.name, dataset.version),
+            reverse=True,
+        )
+
+    def latest_dataset(self, name: str) -> DatasetRecord:
+        matches = [dataset for dataset in self.list_datasets() if dataset.name == name]
+        if not matches:
+            raise KeyError(f"unknown dataset: {name}")
+        return max(matches, key=lambda dataset: dataset.version)
+
+    def review_queue(self) -> list[ReviewQueueItem]:
+        """Return the next human decision required for each reviewable record."""
+
+        state = self.registry.load()
+        queue: list[ReviewQueueItem] = []
+        for source in state.sources.values():
+            stage: ReviewStage | None = None
+            status: str | None = None
+            if source.rights_status == RightsStatus.UNVERIFIED:
+                stage = "rights"
+                status = source.rights_status.value
+            elif source.source_approval == ApprovalStatus.PENDING:
+                stage = "source_approval"
+                status = source.source_approval.value
+            elif (
+                source.source_approval == ApprovalStatus.APPROVED
+                and source.inspection_status == InspectionStatus.SUPPORTED
+                and source.download_approval == ApprovalStatus.PENDING
+            ):
+                stage = "download_approval"
+                status = source.download_approval.value
+            elif (
+                source.download_status in {DownloadStatus.NORMALIZED, DownloadStatus.DUPLICATE}
+                and source.rights_status in PERMITTED_RIGHTS
+                and source.source_approval == ApprovalStatus.APPROVED
+                and source.download_approval == ApprovalStatus.APPROVED
+                and not source.eligible_for_training
+            ):
+                stage = "training_eligibility"
+                status = "ineligible"
+            if stage is not None and status is not None:
+                queue.append(
+                    ReviewQueueItem(
+                        entity_type="source",
+                        entity_id=source.source_id,
+                        source_id=source.source_id,
+                        revision=source.revision,
+                        stage=stage,
+                        status=status,
+                        title=(source.title or str(source.url))[:500],
+                        submitted_at=source.submitted_at,
+                    )
+                )
+        for segment in state.segments.values():
+            if segment.approval_status == ApprovalStatus.PENDING:
+                queue.append(
+                    ReviewQueueItem(
+                        entity_type="segment",
+                        entity_id=segment.segment_id,
+                        source_id=segment.source_id,
+                        revision=segment.revision,
+                        stage="segment_approval",
+                        status=segment.approval_status.value,
+                        title=(
+                            f"Segment {segment.start_seconds:.2f}-"
+                            f"{segment.end_seconds:.2f} seconds"
+                        ),
+                        submitted_at=segment.created_at,
+                    )
+                )
+        return sorted(queue, key=lambda item: (item.submitted_at, str(item.entity_id)))
+
+    def list_audit_events(
+        self,
+        *,
+        entity_type: ReviewEntityType | None = None,
+        entity_id: UUID | str | None = None,
+    ) -> list[AuditEvent]:
+        """Read private audit history without exposing registry mutation access."""
+
+        wanted_id = UUID(str(entity_id)) if entity_id is not None else None
+        return [
+            event
+            for event in self.registry.load().audit_events
+            if (entity_type is None or event.entity_type == entity_type)
+            and (wanted_id is None or event.entity_id == wanted_id)
+        ]
+
     def inspect_source(self, source_id: UUID | str) -> SourceRecord:
         source = self.registry.get_source(source_id)
         adapter, inspection = self.downloaders.inspect(str(source.url))
         if not inspection.supported or adapter is None:
             updated = source.model_copy(
                 update={
+                    "revision": source.revision + 1,
                     "inspection_status": InspectionStatus.UNSUPPORTED,
                     "download_status": DownloadStatus.UNSUPPORTED,
                     "processing_status": ProcessingStatus.FAILED,
@@ -110,6 +213,7 @@ class DatasetIntakeService:
             )
             updated = source.model_copy(
                 update={
+                    "revision": source.revision + 1,
                     "title": inspection.title,
                     "publisher_or_creator": inspection.publisher_or_creator,
                     "platform": inspection.platform,
@@ -125,64 +229,165 @@ class DatasetIntakeService:
         self._save_source(updated)
         return updated
 
-    def set_source_approval(self, source_id: UUID | str, status: ApprovalStatus) -> SourceRecord:
-        source = self.registry.get_source(source_id)
-        updated = source.model_copy(update={"source_approval": status})
-        if status == ApprovalStatus.REJECTED:
-            updated = updated.model_copy(
-                update={
-                    "download_approval": ApprovalStatus.REJECTED,
-                    "eligible_for_training": False,
-                }
-            )
-        self._save_source(updated)
-        return updated
+    def set_source_approval(
+        self,
+        source_id: UUID | str,
+        status: ApprovalStatus,
+        *,
+        actor: str = "cli",
+        reason: str = "CLI source approval update",
+        evidence_reference: EvidenceReference | None = None,
+        expected_revision: int | None = None,
+    ) -> SourceRecord:
+        def update(source: SourceRecord) -> SourceRecord:
+            values: dict[str, object] = {"source_approval": status}
+            if status == ApprovalStatus.REJECTED:
+                values.update(
+                    {
+                        "download_approval": ApprovalStatus.REJECTED,
+                        "eligible_for_training": False,
+                    }
+                )
+            return source.model_copy(update=values)
 
-    def set_download_approval(self, source_id: UUID | str, status: ApprovalStatus) -> SourceRecord:
-        source = self.registry.get_source(source_id)
-        if status == ApprovalStatus.APPROVED:
-            if source.source_approval != ApprovalStatus.APPROVED:
-                raise ValueError("source approval is required before download approval")
-            if source.inspection_status != InspectionStatus.SUPPORTED:
-                raise ValueError("a supported inspection is required before download approval")
-            if source.rights_status in {RightsStatus.RESTRICTED, RightsStatus.REJECTED}:
-                raise ValueError("restricted or rejected sources cannot be approved for download")
-        updated = source.model_copy(update={"download_approval": status})
-        self._save_source(updated)
-        return updated
+        return self._review_source(
+            source_id,
+            action="source_approval_updated",
+            actor=actor,
+            reason=reason,
+            evidence_reference=evidence_reference,
+            expected_revision=expected_revision,
+            state=lambda source: {
+                "source_approval": source.source_approval.value,
+                "download_approval": source.download_approval.value,
+                "eligible_for_training": source.eligible_for_training,
+            },
+            update=update,
+        )
+
+    def set_download_approval(
+        self,
+        source_id: UUID | str,
+        status: ApprovalStatus,
+        *,
+        actor: str = "cli",
+        reason: str = "CLI download approval update",
+        evidence_reference: EvidenceReference | None = None,
+        expected_revision: int | None = None,
+    ) -> SourceRecord:
+        def update(source: SourceRecord) -> SourceRecord:
+            if status == ApprovalStatus.APPROVED:
+                if source.source_approval != ApprovalStatus.APPROVED:
+                    raise ValueError("source approval is required before download approval")
+                if source.inspection_status != InspectionStatus.SUPPORTED:
+                    raise ValueError("a supported inspection is required before download approval")
+                if source.rights_status in {
+                    RightsStatus.RESTRICTED,
+                    RightsStatus.REJECTED,
+                    RightsStatus.REVOKED,
+                    RightsStatus.EXPIRED,
+                }:
+                    raise ValueError(
+                        "prohibited rights status cannot be approved for download"
+                    )
+            values: dict[str, object] = {"download_approval": status}
+            if status != ApprovalStatus.APPROVED:
+                values["eligible_for_training"] = False
+            return source.model_copy(update=values)
+
+        return self._review_source(
+            source_id,
+            action="download_approval_updated",
+            actor=actor,
+            reason=reason,
+            evidence_reference=evidence_reference,
+            expected_revision=expected_revision,
+            state=lambda source: {
+                "download_approval": source.download_approval.value,
+                "eligible_for_training": source.eligible_for_training,
+            },
+            update=update,
+        )
 
     def set_rights(
-        self, source_id: UUID | str, status: RightsStatus, *, license_notes: str
+        self,
+        source_id: UUID | str,
+        status: RightsStatus,
+        *,
+        license_notes: str,
+        actor: str = "cli",
+        reason: str | None = None,
+        evidence_reference: EvidenceReference | None = None,
+        expected_revision: int | None = None,
     ) -> SourceRecord:
-        source = self.registry.get_source(source_id)
-        updated = source.model_copy(
-            update={
+        def update(source: SourceRecord) -> SourceRecord:
+            values: dict[str, object] = {
                 "rights_status": status,
                 "license_notes": license_notes,
                 "eligible_for_training": False,
             }
-        )
-        if status in {RightsStatus.RESTRICTED, RightsStatus.REJECTED}:
-            updated = updated.model_copy(update={"download_approval": ApprovalStatus.REJECTED})
-        self._save_source(updated)
-        return updated
+            if status in {
+                RightsStatus.RESTRICTED,
+                RightsStatus.REJECTED,
+                RightsStatus.REVOKED,
+                RightsStatus.EXPIRED,
+            }:
+                values["download_approval"] = ApprovalStatus.REJECTED
+            return source.model_copy(update=values)
 
-    def set_training_eligibility(self, source_id: UUID | str, eligible: bool) -> SourceRecord:
-        source = self.registry.get_source(source_id)
-        if eligible:
-            if source.rights_status not in PERMITTED_RIGHTS:
-                raise ValueError(
-                    "training eligibility requires verified, owned, or licensed rights"
-                )
-            if source.source_approval != ApprovalStatus.APPROVED:
-                raise ValueError("training eligibility requires source approval")
-            if source.download_approval != ApprovalStatus.APPROVED:
-                raise ValueError("training eligibility requires download approval")
-            if source.download_status not in {DownloadStatus.NORMALIZED, DownloadStatus.DUPLICATE}:
-                raise ValueError("training eligibility requires a normalized download")
-        updated = source.model_copy(update={"eligible_for_training": eligible})
-        self._save_source(updated)
-        return updated
+        return self._review_source(
+            source_id,
+            action="rights_updated",
+            actor=actor,
+            reason=reason or license_notes or "CLI rights update",
+            evidence_reference=evidence_reference,
+            expected_revision=expected_revision,
+            state=lambda source: {
+                "rights_status": source.rights_status.value,
+                "license_notes": source.license_notes,
+                "download_approval": source.download_approval.value,
+                "eligible_for_training": source.eligible_for_training,
+            },
+            update=update,
+        )
+
+    def set_training_eligibility(
+        self,
+        source_id: UUID | str,
+        eligible: bool,
+        *,
+        actor: str = "cli",
+        reason: str = "CLI training eligibility update",
+        evidence_reference: EvidenceReference | None = None,
+        expected_revision: int | None = None,
+    ) -> SourceRecord:
+        def update(source: SourceRecord) -> SourceRecord:
+            if eligible:
+                if source.rights_status not in PERMITTED_RIGHTS:
+                    raise ValueError(
+                        "training eligibility requires verified, owned, or licensed rights"
+                    )
+                if source.source_approval != ApprovalStatus.APPROVED:
+                    raise ValueError("training eligibility requires source approval")
+                if source.download_approval != ApprovalStatus.APPROVED:
+                    raise ValueError("training eligibility requires download approval")
+                if source.download_status not in {
+                    DownloadStatus.NORMALIZED,
+                    DownloadStatus.DUPLICATE,
+                }:
+                    raise ValueError("training eligibility requires a normalized download")
+            return source.model_copy(update={"eligible_for_training": eligible})
+
+        return self._review_source(
+            source_id,
+            action="training_eligibility_updated",
+            actor=actor,
+            reason=reason,
+            evidence_reference=evidence_reference,
+            expected_revision=expected_revision,
+            state=lambda source: {"eligible_for_training": source.eligible_for_training},
+            update=update,
+        )
 
     def download_source(self, source_id: UUID | str) -> SourceRecord:
         source = self.registry.get_source(source_id)
@@ -201,13 +406,18 @@ class DatasetIntakeService:
         normalized_path = self.storage.path_for(
             "sources", "normalized", f"{source.source_id}.mp4"
         )
-        self._save_source(
+        source = self._save_source(
             source.model_copy(
-                update={"download_status": DownloadStatus.DOWNLOADING, "error_state": None}
+                update={
+                    "revision": source.revision + 1,
+                    "download_status": DownloadStatus.DOWNLOADING,
+                    "error_state": None,
+                }
             )
         )
         try:
             result = adapter.download(source, raw_path)
+            result.path.chmod(0o600)
             self.storage.preflight(result.bytes_written)
             checksum = sha256_file(result.path)
             duplicate = next(
@@ -222,6 +432,7 @@ class DatasetIntakeService:
                 result.path.unlink(missing_ok=True)
                 updated = source.model_copy(
                     update={
+                        "revision": source.revision + 1,
                         "download_status": DownloadStatus.DUPLICATE,
                         "duplicate_of_source_id": duplicate.source_id,
                         "storage_path": duplicate.storage_path,
@@ -234,8 +445,10 @@ class DatasetIntakeService:
             else:
                 self.storage.preflight(result.bytes_written)
                 metadata = self.media.normalize(result.path, normalized_path)
+                normalized_path.chmod(0o600)
                 updated = source.model_copy(
                     update={
+                        "revision": source.revision + 1,
                         "download_status": DownloadStatus.NORMALIZED,
                         "storage_path": result.path,
                         "normalized_path": normalized_path,
@@ -254,6 +467,7 @@ class DatasetIntakeService:
             raw_path.with_suffix(raw_path.suffix + ".part").unlink(missing_ok=True)
             failed = source.model_copy(
                 update={
+                    "revision": source.revision + 1,
                     "download_status": DownloadStatus.FAILED,
                     "processing_status": ProcessingStatus.FAILED,
                     "error_state": str(exc),
@@ -300,6 +514,7 @@ class DatasetIntakeService:
                 suggestion.start_seconds,
                 suggestion.end_seconds - suggestion.start_seconds,
             )
+            output.chmod(0o600)
             candidate = SegmentCandidate(
                 segment_id=segment_id,
                 source_id=source.source_id,
@@ -322,6 +537,7 @@ class DatasetIntakeService:
                 state.segments[str(candidate.segment_id)] = candidate
             state.sources[str(source.source_id)] = source.model_copy(
                 update={
+                    "revision": state.sources[str(source.source_id)].revision + 1,
                     "processing_status": ProcessingStatus.SEGMENTS_SUGGESTED,
                     "estimated_useful_segment_count": len(candidates),
                 }
@@ -342,18 +558,59 @@ class DatasetIntakeService:
         )
 
     def set_segment_approval(
-        self, segment_id: UUID | str, status: ApprovalStatus
+        self,
+        segment_id: UUID | str,
+        status: ApprovalStatus,
+        *,
+        actor: str = "cli",
+        reason: str = "CLI segment approval update",
+        evidence_reference: EvidenceReference | None = None,
+        expected_revision: int | None = None,
     ) -> SegmentCandidate:
-        segment = self.registry.get_segment(segment_id)
-        updated = segment.model_copy(update={"approval_status": status})
+        key = str(segment_id)
+        updated: SegmentCandidate | None = None
 
         def save(state: RegistryState) -> None:
-            state.segments[str(updated.segment_id)] = updated
+            nonlocal updated
+            segment = state.segments.get(key)
+            if segment is None:
+                raise KeyError(f"unknown segment ID: {segment_id}")
+            self._check_revision(
+                "segment", segment.segment_id, segment.revision, expected_revision
+            )
+            updated = segment.model_copy(
+                update={
+                    "revision": segment.revision + 1,
+                    "approval_status": status,
+                }
+            )
+            event = AuditEvent(
+                entity_type="segment",
+                entity_id=segment.segment_id,
+                action="segment_approval_updated",
+                actor=actor,
+                reason=reason,
+                evidence_reference=evidence_reference,
+                revision=updated.revision,
+                prior_state={"approval_status": segment.approval_status.value},
+                new_state={"approval_status": updated.approval_status.value},
+            )
+            state.segments[key] = updated
+            state.audit_events = (*state.audit_events, event)
 
         self.registry.mutate(save)
+        if updated is None:
+            raise RuntimeError("segment review did not produce an updated record")
         return updated
 
-    def build_dataset(self, name: str) -> DatasetRecord:
+    def build_dataset(
+        self,
+        name: str,
+        *,
+        actor: str = "cli",
+        reason: str = "CLI dataset build",
+        evidence_reference: EvidenceReference | None = None,
+    ) -> DatasetRecord:
         if re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,63}", name) is None:
             raise ValueError("dataset name must be 2-64 lowercase letters, numbers, '_' or '-'")
         state = self.registry.load()
@@ -401,6 +658,7 @@ class DatasetIntakeService:
                 )
             )
         write_manifest(entries, manifest_path)
+        manifest_path.chmod(0o600)
         record = DatasetRecord(
             name=name,
             version=version,
@@ -415,19 +673,33 @@ class DatasetIntakeService:
         report_path.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
+        report_path.chmod(0o600)
 
         def save(state_to_update: RegistryState) -> None:
             state_to_update.datasets[str(record.dataset_id)] = record
+            event = AuditEvent(
+                entity_type="dataset",
+                entity_id=record.dataset_id,
+                action="dataset_built",
+                actor=actor,
+                reason=reason,
+                evidence_reference=evidence_reference,
+                revision=record.version,
+                prior_state={},
+                new_state={
+                    "name": record.name,
+                    "version": record.version,
+                    "segment_count": len(record.segment_ids),
+                    "source_count": len(record.source_ids),
+                },
+            )
+            state_to_update.audit_events = (*state_to_update.audit_events, event)
 
         self.registry.mutate(save)
         return record
 
     def dataset_report(self, name: str) -> dict[str, object]:
-        state = self.registry.load()
-        matches = [item for item in state.datasets.values() if item.name == name]
-        if not matches:
-            raise KeyError(f"unknown dataset: {name}")
-        latest = max(matches, key=lambda item: item.version)
+        latest = self.latest_dataset(name)
         if latest.report_path.is_file():
             payload = json.loads(latest.report_path.read_text(encoding="utf-8"))
             if isinstance(payload, dict):
@@ -469,8 +741,66 @@ class DatasetIntakeService:
             },
         }
 
-    def _save_source(self, source: SourceRecord) -> None:
+    def _review_source(
+        self,
+        source_id: UUID | str,
+        *,
+        action: ReviewAction,
+        actor: str,
+        reason: str,
+        evidence_reference: EvidenceReference | None,
+        expected_revision: int | None,
+        state: Callable[[SourceRecord], dict[str, ReviewStateValue]],
+        update: Callable[[SourceRecord], SourceRecord],
+    ) -> SourceRecord:
+        key = str(source_id)
+        updated: SourceRecord | None = None
+
+        def save(registry_state: RegistryState) -> None:
+            nonlocal updated
+            source = registry_state.sources.get(key)
+            if source is None:
+                raise KeyError(f"unknown source ID: {source_id}")
+            self._check_revision("source", source.source_id, source.revision, expected_revision)
+            prior_state = state(source)
+            updated = update(source).model_copy(update={"revision": source.revision + 1})
+            event = AuditEvent(
+                entity_type="source",
+                entity_id=source.source_id,
+                action=action,
+                actor=actor,
+                reason=reason,
+                evidence_reference=evidence_reference,
+                revision=updated.revision,
+                prior_state=prior_state,
+                new_state=state(updated),
+            )
+            registry_state.sources[key] = updated
+            registry_state.audit_events = (*registry_state.audit_events, event)
+
+        self.registry.mutate(save)
+        if updated is None:
+            raise RuntimeError("source review did not produce an updated record")
+        return updated
+
+    @staticmethod
+    def _check_revision(
+        entity_type: ReviewEntityType,
+        entity_id: UUID,
+        actual_revision: int,
+        expected_revision: int | None,
+    ) -> None:
+        if expected_revision is not None and actual_revision != expected_revision:
+            raise StaleRevisionError(
+                entity_type,
+                entity_id,
+                expected_revision=expected_revision,
+                actual_revision=actual_revision,
+            )
+
+    def _save_source(self, source: SourceRecord) -> SourceRecord:
         def save(state: RegistryState) -> None:
             state.sources[str(source.source_id)] = source
 
         self.registry.mutate(save)
+        return source

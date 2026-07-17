@@ -83,7 +83,8 @@ rights metadata, checksums, and provenance.
 
 ## Human review
 
-The CLI is currently the authoritative review interface. Rights classification, source approval,
-download approval, training eligibility, and segment approval are all manual actions. The next
-recommended milestone is a small authenticated review console that calls the same
-`DatasetIntakeService`; it must not duplicate or bypass the service's validation rules.
+The CLI and the private review console call the same `DatasetIntakeService`, which remains the
+sole mutation authority. Rights classification, source approval, download approval, training
+eligibility, segment approval, and dataset builds are explicit human actions. Run the console on
+VPS loopback and reach it through an SSH tunnel as described in
+[`review-console.md`](review-console.md).
