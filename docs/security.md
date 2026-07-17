@@ -18,3 +18,9 @@ Temporary Wormkey review sharing is dry-run-first and requires `--execute`. Cade
 application on loopback, adds ephemeral outer authentication and secure cookies, constrains the
 tunnel lifetime, and suppresses provider owner-control URLs. It does not make Wormkey an
 end-to-end private network: its edge terminates TLS and transports requested content.
+
+RunPod plans name `RUNPOD_API_KEY` but never serialize its value. Dry runs do not read the
+environment or contact RunPod. Future create/terminate execution requires an explicit execution
+flag and a separate opaque human-approval reference. Plans request no public ports, public IP, or
+private data. Stopped Pods can retain billable storage, so every future job requires verified
+termination and a separate persistent-volume review.

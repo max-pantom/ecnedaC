@@ -45,13 +45,24 @@ dataset_intake:
   ffmpeg_binary: ffmpeg
   ffprobe_binary: ffprobe
 remote:
+  provider: runpod
   manifest_uri: s3://cadence-placeholder/manifests/train.jsonl
   checkpoint_uri: s3://cadence-placeholder/checkpoints/
-  requested_hardware: RTX 4090 24GB
+  requested_hardware: NVIDIA RTX A5000 24GB
   dependency_group: training-gpu
   python_version: "3.12"
-  maximum_budget_usd: 25.0
-  maximum_runtime_minutes: 360
+  maximum_budget_usd: 5.0
+  maximum_runtime_minutes: 240
+  synthetic_smoke_maximum_budget_usd: 1.0
+  synthetic_smoke_maximum_runtime_minutes: 30
+  maximum_hourly_price_usd: 0.30
+  runpod_gpu_type_id: NVIDIA RTX A5000
+  runpod_gpu_count: 1
+  runpod_cloud_type: COMMUNITY
+  runpod_image_name: pytorch/pytorch:2.11.0-cuda12.6-cudnn9-devel
+  runpod_container_disk_gb: 50
+  runpod_volume_gb: 0
+  runpod_pod_name: cadence-bounded-a5000
   vps_host: null
   vast_instance_id: null
 vps_operations:

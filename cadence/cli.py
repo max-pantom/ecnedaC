@@ -98,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     remote.add_argument("--config", default="configs/vps.yaml")
     remote.add_argument("--execute", action="store_true")
 
+    runpod = subparsers.add_parser("runpod-action")
+    runpod.add_argument("action", choices=["search", "create", "inspect", "terminate"])
+    runpod.add_argument("--config", default="configs/gpu-24gb.yaml")
+    runpod.add_argument("--pod-id")
+    runpod.add_argument("--execute", action="store_true")
+    runpod.add_argument("--approval-reference")
+    runpod.add_argument("--confirm-termination", action="store_true")
+
     vps = subparsers.add_parser("vps")
     vps.add_argument("--config", default="configs/vps.yaml")
     vps_commands = vps.add_subparsers(dest="vps_command", required=True)
@@ -255,6 +263,22 @@ def main(argv: list[str] | None = None) -> int:
         from cadence.remote.job import run_remote_action
 
         print(run_remote_action(args.action, load_config(args.config), execute=args.execute))
+    elif args.command == "runpod-action":
+        from cadence.remote.runpod import build_runpod_plan, execute_runpod_plan
+
+        runpod_plan = build_runpod_plan(
+            args.action,
+            load_config(args.config),
+            pod_id=args.pod_id,
+        )
+        _json(
+            execute_runpod_plan(
+                runpod_plan,
+                execute=args.execute,
+                approval_reference=args.approval_reference,
+                confirm_termination=args.confirm_termination,
+            )
+        )
     elif args.command == "vps":
         from cadence.operations.vps import (
             create_metadata_backup,
