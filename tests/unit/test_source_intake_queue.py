@@ -1,12 +1,12 @@
 from pathlib import Path
 
+from cadence.cli import main
 from cadence.ingestion.dataset_pilot import (
     SourceRecord,
     approve_sources,
     load_source_queue,
     write_candidate_sources,
 )
-from cadence.cli import main
 
 
 def test_url_candidate_queue_records_submitter_and_rights_state(tmp_path: Path) -> None:
@@ -47,7 +47,9 @@ def test_batch_url_intake_deduplicates_and_approval_does_not_grant_training_righ
     queue = load_source_queue(pilot_dir)
     assert len(queue) == 2
     approved = approve_sources(pilot_dir, [queue[0].source_asset_id])
-    first = next(source for source in approved if source.source_asset_id == queue[0].source_asset_id)
+    first = next(
+        source for source in approved if source.source_asset_id == queue[0].source_asset_id
+    )
     assert first.source_state == "approved_source"
     assert first.rights_status == "unverified"
     assert first.eligible_for_training is False
@@ -84,22 +86,40 @@ def test_source_record_accepts_legacy_and_new_rights_fields(tmp_path: Path) -> N
     assert source.rights_status == "unverified"
 
 
-def test_dataset_cli_source_approve_preserves_unverified_training_exclusion(
+def test_pilot_cli_source_approve_preserves_unverified_training_exclusion(
     tmp_path: Path,
 ) -> None:
     pilot_dir = tmp_path / "pilot"
-    assert main([
-        "dataset", "source", "add",
-        "https://example.com/launch-video",
-        "--pilot-dir", str(pilot_dir),
-        "--submitted-by", "max",
-    ]) == 0
+    assert (
+        main(
+            [
+                "pilot",
+                "source",
+                "add",
+                "https://example.com/launch-video",
+                "--pilot-dir",
+                str(pilot_dir),
+                "--submitted-by",
+                "max",
+            ]
+        )
+        == 0
+    )
     queue = load_source_queue(pilot_dir)
-    assert main([
-        "dataset", "source", "approve",
-        "--pilot-dir", str(pilot_dir),
-        "--source", str(queue[0].source_asset_id),
-    ]) == 0
+    assert (
+        main(
+            [
+                "pilot",
+                "source",
+                "approve",
+                "--pilot-dir",
+                str(pilot_dir),
+                "--source",
+                str(queue[0].source_asset_id),
+            ]
+        )
+        == 0
+    )
     approved = load_source_queue(pilot_dir)[0]
     assert approved.source_state == "approved_source"
     assert approved.rights_status == "unverified"

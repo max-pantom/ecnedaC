@@ -37,32 +37,41 @@ uv run cadence remote-package --config configs/gpu-24gb.yaml
 Remote scripts are dry-run-first and require both configuration/credentials and `--execute`.
 No remote action is performed as part of local acceptance.
 
-## Launch Video Dataset Pilot
+## Dataset intake pilot
 
-Cadence's next milestone is the Launch Video Dataset Pilot. The initial domain is short-form
-product and brand launch motion: SaaS launch films, AI product reveals, hardware reveals,
-interface-driven product films, kinetic typography, feature montages, identity reveals, and
-cinematic brand lockups.
-
-URL intake records candidates first. Public visibility is not treated as training permission.
-Unverified sources remain quarantined by default:
-
-```text
-rights_status = unverified
-eligible_for_training = false
-```
-
-Example candidate intake:
+Candidate URLs are persisted before any download. Unknown sources default to unverified and cannot
+enter a training manifest. A typical safe flow is:
 
 ```bash
-uv run cadence dataset source add https://example.com/launch-video --submitted-by max
-uv run cadence dataset source add https://example.com/a https://example.com/b --submitted-by max
+uv run cadence dataset source add https://example.com/launch-film.mp4 --submitted-by aven
+uv run cadence dataset source inspect <source-id>
+uv run cadence dataset source rights <source-id> --status user_owned --notes "Confirmed by user"
+uv run cadence dataset source approve <source-id>
+uv run cadence dataset source approve-download <source-id>
+uv run cadence dataset source download <source-id>
+uv run cadence dataset source eligibility <source-id> --eligible
+uv run cadence dataset segments suggest <source-id>
+uv run cadence dataset segment approve <segment-id>
+uv run cadence dataset build launch-pilot
+uv run cadence dataset report launch-pilot
+uv run cadence storage report
 ```
 
-For a local/lawful source file:
+See [the dataset-intake operations guide](docs/operations/dataset-intake.md) for the full safe
+workflow and recovery procedures.
+
+## Launch-video research workflow
+
+This branch also retains the earlier file-oriented launch-video pilot. Its commands live under
+`cadence pilot` so they do not conflict with the audited intake workflow above. The pilot supports
+batch candidate capture and direct registration of a local, lawfully obtained media file:
 
 ```bash
-uv run cadence dataset source add \
+uv run cadence pilot source add \
+  https://example.com/a https://example.com/b \
+  --submitted-by max
+
+uv run cadence pilot source add \
   --media-path /path/to/source.mp4 \
   --source-url https://example.com/launch-video \
   --creator "Example Studio" \
@@ -70,21 +79,17 @@ uv run cadence dataset source add \
   --license-status synthetic-generated
 ```
 
-Pilot workflow:
+The remaining research flow is:
 
 ```bash
-uv run cadence dataset source inspect --source all
-uv run cadence dataset source approve --source <source-asset-id>
-uv run cadence dataset source reject --source <source-asset-id> --reason outside-launch-video-domain
-uv run cadence dataset source download --source <source-asset-id>
-uv run cadence dataset segments suggest --source all --min-duration 4 --max-duration 10
-uv run cadence dataset segments approve --clip <clip-asset-id>
-uv run cadence dataset build pilot-launch-v0
-uv run cadence dataset report pilot-launch-v0
+uv run cadence pilot source inspect --source all
+uv run cadence pilot source approve --source <source-asset-id>
+uv run cadence pilot segments suggest --source all --min-duration 4 --max-duration 10
+uv run cadence pilot segments approve --clip <clip-asset-id>
+uv run cadence pilot build pilot-launch-v0
+uv run cadence pilot report pilot-launch-v0
 ```
 
-`source download` requires `yt-dlp` and only downloads approved sources. Downloading a source does
-not make it training eligible; unverified rights remain excluded.
-
-The VPS is only a lightweight dataset coordination and preprocessing machine. Do not run GPU
-training or heavy model work there.
+`pilot source download` requires `yt-dlp` and only downloads approved sources. Downloading never
+grants training eligibility; unverified rights remain excluded. The VPS is a lightweight dataset
+coordination and preprocessing host, not a GPU training machine.

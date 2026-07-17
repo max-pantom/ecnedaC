@@ -42,3 +42,9 @@ def test_unknown_configuration_field_fails(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(ValidationError):
         load_config("configs/local.yaml")
 
+
+def test_vps_dataset_limits_are_hard_defaults() -> None:
+    config = load_config("configs/vps.yaml")
+    assert config.runtime.num_workers == 1
+    assert config.dataset_intake.maximum_working_storage_gb == 20.0
+    assert config.dataset_intake.minimum_free_disk_gb == 15.0

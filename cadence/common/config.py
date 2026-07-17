@@ -57,6 +57,25 @@ class PathsConfig(StrictModel):
     manifest_path: Path | None = None
     checkpoint_dir: Path = Path("artifacts/checkpoints")
     report_dir: Path = Path("artifacts/reports")
+    intake_root: Path = Path("data/intake")
+
+
+class DatasetIntakeConfig(StrictModel):
+    maximum_working_storage_gb: float = Field(default=20.0, gt=0)
+    minimum_free_disk_gb: float = Field(default=15.0, ge=0)
+    unknown_download_reservation_gb: float = Field(default=2.0, gt=0)
+    segment_min_seconds: float = Field(default=4.0, gt=0)
+    segment_max_seconds: float = Field(default=10.0, gt=0)
+    segment_target_seconds: float = Field(default=6.0, gt=0)
+    maximum_suggestions_per_source: int = Field(default=12, gt=0)
+    ffmpeg_binary: str = "ffmpeg"
+    ffprobe_binary: str = "ffprobe"
+
+    @model_validator(mode="after")
+    def validate_segment_durations(self) -> DatasetIntakeConfig:
+        if not self.segment_min_seconds <= self.segment_target_seconds <= self.segment_max_seconds:
+            raise ValueError("segment target must be between segment minimum and maximum")
+        return self
 
 
 class RemoteConfig(StrictModel):
@@ -77,6 +96,7 @@ class CadenceConfig(StrictModel):
     encoders: EncoderConfig
     training: TrainingConfig
     paths: PathsConfig
+    dataset_intake: DatasetIntakeConfig
     remote: RemoteConfig
 
     @model_validator(mode="after")
@@ -131,7 +151,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
 
 def _resolve_paths(config: CadenceConfig, repo_root: Path) -> CadenceConfig:
     values = config.model_dump()
-    for key in ("manifest_path", "checkpoint_dir", "report_dir"):
+    for key in ("manifest_path", "checkpoint_dir", "report_dir", "intake_root"):
         value = values["paths"].get(key)
         if value is not None:
             path = Path(value).expanduser()
@@ -148,4 +168,3 @@ def load_config(path: str | Path, *, repo_root: str | Path | None = None) -> Cad
     config = CadenceConfig.model_validate(raw)
     root = Path(repo_root).resolve() if repo_root else config_path.parent.parent
     return _resolve_paths(config, root)
-

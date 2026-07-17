@@ -19,6 +19,8 @@ data/manifests/*
 !data/manifests/.gitkeep
 data/cache/*
 !data/cache/.gitkeep
+data/intake/*
+!data/intake/.gitkeep
 artifacts/checkpoints/*
 !artifacts/checkpoints/.gitkeep
 artifacts/reports/*
@@ -37,4 +39,3 @@ tests/generated/
 *.gif
 *.zarr/
 mlruns/
-

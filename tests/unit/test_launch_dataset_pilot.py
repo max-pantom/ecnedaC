@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from cadence.ingestion.fixtures import _write_mp4
 from cadence.ingestion.dataset_pilot import (
     approve_segments,
     build_pilot_manifest,
@@ -9,6 +8,7 @@ from cadence.ingestion.dataset_pilot import (
     suggest_segments,
     write_source_record,
 )
+from cadence.ingestion.fixtures import _write_mp4
 from cadence.ingestion.manifest import ManifestEntry
 
 
@@ -44,7 +44,9 @@ def test_segment_suggestions_build_reviewable_manifest_and_report(tmp_path: Path
         license_status="synthetic-generated",
     )
 
-    candidates = suggest_segments(pilot_dir, source.source_asset_id, min_duration_s=4.0, max_duration_s=6.0)
+    candidates = suggest_segments(
+        pilot_dir, source.source_asset_id, min_duration_s=4.0, max_duration_s=6.0
+    )
     assert candidates
     assert candidates[0].review_status == "candidate"
     assert candidates[0].start_s >= 0
@@ -54,7 +56,9 @@ def test_segment_suggestions_build_reviewable_manifest_and_report(tmp_path: Path
 
     approve_segments(pilot_dir, [candidates[0].clip_asset_id])
     manifest_path = build_pilot_manifest(pilot_dir, dataset_id="pilot-launch-v0")
-    entries = [ManifestEntry.model_validate_json(line) for line in manifest_path.read_text().splitlines()]
+    entries = [
+        ManifestEntry.model_validate_json(line) for line in manifest_path.read_text().splitlines()
+    ]
     assert len(entries) == 1
     assert entries[0].domain == "launch-video-sound-design"
     assert entries[0].clip_start_s == candidates[0].start_s

@@ -33,6 +33,17 @@ paths:
   manifest_path: null
   checkpoint_dir: artifacts/checkpoints
   report_dir: artifacts/reports
+  intake_root: data/intake
+dataset_intake:
+  maximum_working_storage_gb: 20.0
+  minimum_free_disk_gb: 15.0
+  unknown_download_reservation_gb: 2.0
+  segment_min_seconds: 4.0
+  segment_max_seconds: 10.0
+  segment_target_seconds: 6.0
+  maximum_suggestions_per_source: 12
+  ffmpeg_binary: ffmpeg
+  ffprobe_binary: ffprobe
 remote:
   manifest_uri: s3://cadence-placeholder/manifests/train.jsonl
   checkpoint_uri: s3://cadence-placeholder/checkpoints/
@@ -43,4 +54,3 @@ remote:
   maximum_runtime_minutes: 360
   vps_host: null
   vast_instance_id: null
-

@@ -45,9 +45,12 @@ class ManifestEntry(BaseModel):
     def validate_locator(self) -> ManifestEntry:
         if self.path is None and self.storage_uri is None:
             raise ValueError("either path or storage_uri is required")
-        if self.clip_start_s is not None and self.clip_end_s is not None:
-            if self.clip_end_s <= self.clip_start_s:
-                raise ValueError("clip_end_s must be greater than clip_start_s")
+        if (
+            self.clip_start_s is not None
+            and self.clip_end_s is not None
+            and self.clip_end_s <= self.clip_start_s
+        ):
+            raise ValueError("clip_end_s must be greater than clip_start_s")
         quarantined = self.license_status in {
             "unknown",
             "unverified",
@@ -55,7 +58,10 @@ class ManifestEntry(BaseModel):
         }
         if quarantined and self.eligible_for_contrastive:
             raise ValueError("unverified assets must stay excluded from contrastive training")
-        if self.review_status in {"candidate", "rejected", "quarantined"} and self.eligible_for_contrastive:
+        if (
+            self.review_status in {"candidate", "rejected", "quarantined"}
+            and self.eligible_for_contrastive
+        ):
             raise ValueError("only approved clips may be eligible for contrastive training")
         return self
 

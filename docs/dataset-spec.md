@@ -138,3 +138,11 @@ Dataset reports include:
 - duration distribution
 - motion-intensity distribution
 - audio activity distribution
+
+## Operational intake contract
+
+Candidate launch-video sources are tracked independently of training manifests. Rights status,
+source approval, download approval, and training eligibility are separate fields. New sources are
+always `unverified` and ineligible. Only an approved segment whose source has permitted rights and
+explicit training eligibility can enter a versioned manifest. Launch-video category tags describe
+dataset context and are not model labels.

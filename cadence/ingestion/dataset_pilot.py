@@ -11,15 +11,20 @@ import json
 import shutil
 import subprocess
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from fractions import Fraction
+from itertools import pairwise
 from pathlib import Path
 from statistics import mean
+from typing import TypedDict, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import av
 import numpy as np
 from av.error import FFmpegError
+from numpy.typing import NDArray
 
 from cadence.ingestion.manifest import (
     ManifestEntry,
@@ -113,6 +118,16 @@ class SegmentCandidate:
     notes: str
 
 
+class MediaMetadata(TypedDict):
+    duration_s: float
+    fps: float
+    width: int
+    height: int
+    audio_sample_rate: int
+    has_video: bool
+    has_audio: bool
+
+
 def _now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
@@ -123,19 +138,34 @@ def _json_default(value: object) -> str:
     raise TypeError(f"unsupported JSON value: {value!r}")
 
 
-def _write_jsonl(path: Path, rows: list[object]) -> None:
+def _float_value(value: object) -> float:
+    return float(str(value or 0))
+
+
+def _int_value(value: object) -> int:
+    return int(str(value or 0))
+
+
+def _write_jsonl(path: Path, rows: Sequence[SourceRecord | SegmentCandidate]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        "".join(json.dumps(asdict(row), default=_json_default, sort_keys=True) + "\n" for row in rows),
+        "".join(
+            json.dumps(asdict(row), default=_json_default, sort_keys=True) + "\n" for row in rows
+        ),
         encoding="utf-8",
     )
 
 
 def _coerce_source_row(row: dict[str, object]) -> SourceRecord:
-    rights_status = str(row.get("rights_status") or (
-        "unverified" if row.get("license_status") in {"unknown", "unverified", "unverified-research-quarantine"}
-        else row.get("license_status") or "unverified"
-    ))
+    rights_status = str(
+        row.get("rights_status")
+        or (
+            "unverified"
+            if row.get("license_status")
+            in {"unknown", "unverified", "unverified-research-quarantine"}
+            else row.get("license_status") or "unverified"
+        )
+    )
     eligible = bool(row.get("eligible_for_training", row.get("eligible_for_contrastive", False)))
     if rights_status == "unverified":
         eligible = False
@@ -151,15 +181,20 @@ def _coerce_source_row(row: dict[str, object]) -> SourceRecord:
         license_status=str(row.get("license_status") or "unverified-research-quarantine"),
         rights_status=rights_status,
         source_state=str(row.get("source_state") or "candidate"),
-        source_rejection_reason=str(row["source_rejection_reason"]) if row.get("source_rejection_reason") else None,
-        download_status=str(row.get("download_status") or ("downloaded" if row.get("media_path") else "not_downloaded")),
+        source_rejection_reason=str(row["source_rejection_reason"])
+        if row.get("source_rejection_reason")
+        else None,
+        download_status=str(
+            row.get("download_status")
+            or ("downloaded" if row.get("media_path") else "not_downloaded")
+        ),
         domain=str(row.get("domain") or DOMAIN),
         checksum_sha256=str(row.get("checksum_sha256") or ""),
-        duration_s=float(row.get("duration_s") or 0.0),
-        fps=float(row.get("fps") or 0.0),
-        width=int(row.get("width") or 0),
-        height=int(row.get("height") or 0),
-        audio_sample_rate=int(row.get("audio_sample_rate") or 0),
+        duration_s=_float_value(row.get("duration_s")),
+        fps=_float_value(row.get("fps")),
+        width=_int_value(row.get("width")),
+        height=_int_value(row.get("height")),
+        audio_sample_rate=_int_value(row.get("audio_sample_rate")),
         has_video=bool(row.get("has_video") or False),
         has_audio=bool(row.get("has_audio") or False),
         eligible_for_contrastive=eligible,
@@ -218,7 +253,7 @@ def enforce_storage_budget(pilot_dir: str | Path) -> None:
         raise RuntimeError("Cadence pilot storage exceeds the 20 GB VPS budget")
 
 
-def _media_metadata(path: Path) -> dict[str, object]:
+def _media_metadata(path: Path) -> MediaMetadata:
     try:
         with av.open(str(path)) as container:
             video = container.streams.video[0] if container.streams.video else None
@@ -236,12 +271,12 @@ def _media_metadata(path: Path) -> dict[str, object]:
             }
     except (FFmpegError, OSError, ValueError) as exc:
         raise ValueError(f"failed to inspect media {path}: {exc}") from exc
+    raise AssertionError("media inspection exited without metadata")
 
 
 def _is_training_eligible(license_status: str, has_video: bool, has_audio: bool) -> bool:
     quarantined = license_status in {"unverified-research-quarantine", "unknown", "unverified"}
     return has_video and has_audio and not quarantined
-
 
 
 def write_candidate_sources(
@@ -296,18 +331,25 @@ def approve_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> list
     updated: list[SourceRecord] = []
     for source in _read_sources(pilot_dir):
         if source.source_asset_id in wanted:
-            updated.append(SourceRecord(**{
-                **asdict(source),
-                "source_asset_id": source.source_asset_id,
-                "source_state": "approved_source",
-                "eligible_for_training": False if source.rights_status == "unverified" else source.eligible_for_training,
-                "eligible_for_contrastive": False if source.rights_status == "unverified" else source.eligible_for_contrastive,
-            }))
+            updated.append(
+                SourceRecord(
+                    **{
+                        **asdict(source),
+                        "source_asset_id": source.source_asset_id,
+                        "source_state": "approved_source",
+                        "eligible_for_training": False
+                        if source.rights_status == "unverified"
+                        else source.eligible_for_training,
+                        "eligible_for_contrastive": False
+                        if source.rights_status == "unverified"
+                        else source.eligible_for_contrastive,
+                    }
+                )
+            )
         else:
             updated.append(source)
     _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
     return updated
-
 
 
 def reject_sources(
@@ -317,18 +359,23 @@ def reject_sources(
     updated: list[SourceRecord] = []
     for source in _read_sources(pilot_dir):
         if source.source_asset_id in wanted:
-            updated.append(SourceRecord(**{
-                **asdict(source),
-                "source_asset_id": source.source_asset_id,
-                "source_state": "rejected",
-                "source_rejection_reason": reason,
-                "eligible_for_training": False,
-                "eligible_for_contrastive": False,
-            }))
+            updated.append(
+                SourceRecord(
+                    **{
+                        **asdict(source),
+                        "source_asset_id": source.source_asset_id,
+                        "source_state": "rejected",
+                        "source_rejection_reason": reason,
+                        "eligible_for_training": False,
+                        "eligible_for_contrastive": False,
+                    }
+                )
+            )
         else:
             updated.append(source)
     _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
     return updated
+
 
 def download_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> list[SourceRecord]:
     """Download approved URL sources with yt-dlp and update metadata.
@@ -370,27 +417,35 @@ def download_sources(pilot_dir: str | Path, source_asset_ids: list[UUID]) -> lis
             raise RuntimeError(f"yt-dlp did not report a downloaded file for {source.source_url}")
         media = Path(downloaded_lines[-1]).resolve()
         metadata = _media_metadata(media)
-        eligible = _is_training_eligible(
-            source.license_status, bool(metadata["has_video"]), bool(metadata["has_audio"])
-        ) and source.rights_status != "unverified"
-        updated.append(SourceRecord(**{
-            **asdict(source),
-            "source_asset_id": source.source_asset_id,
-            "media_path": str(media),
-            "checksum_sha256": sha256_file(media),
-            "duration_s": float(metadata["duration_s"]),
-            "fps": float(metadata["fps"]),
-            "width": int(metadata["width"]),
-            "height": int(metadata["height"]),
-            "audio_sample_rate": int(metadata["audio_sample_rate"]),
-            "has_video": bool(metadata["has_video"]),
-            "has_audio": bool(metadata["has_audio"]),
-            "download_status": "downloaded",
-            "eligible_for_contrastive": eligible,
-            "eligible_for_training": eligible,
-        }))
+        eligible = (
+            _is_training_eligible(
+                source.license_status, bool(metadata["has_video"]), bool(metadata["has_audio"])
+            )
+            and source.rights_status != "unverified"
+        )
+        updated.append(
+            SourceRecord(
+                **{
+                    **asdict(source),
+                    "source_asset_id": source.source_asset_id,
+                    "media_path": str(media),
+                    "checksum_sha256": sha256_file(media),
+                    "duration_s": float(metadata["duration_s"]),
+                    "fps": float(metadata["fps"]),
+                    "width": int(metadata["width"]),
+                    "height": int(metadata["height"]),
+                    "audio_sample_rate": int(metadata["audio_sample_rate"]),
+                    "has_video": bool(metadata["has_video"]),
+                    "has_audio": bool(metadata["has_audio"]),
+                    "download_status": "downloaded",
+                    "eligible_for_contrastive": eligible,
+                    "eligible_for_training": eligible,
+                }
+            )
+        )
     _write_jsonl(Path(pilot_dir) / SOURCE_FILE, updated)
     return updated
+
 
 def write_source_record(
     pilot_dir: str | Path,
@@ -419,7 +474,9 @@ def write_source_record(
         submitted_by="user",
         collection_method=collection_method,
         license_status=license_status,
-        rights_status="unverified" if license_status in {"unknown", "unverified", "unverified-research-quarantine"} else license_status,
+        rights_status="unverified"
+        if license_status in {"unknown", "unverified", "unverified-research-quarantine"}
+        else license_status,
         source_state="approved_source",
         source_rejection_reason=None,
         download_status="downloaded",
@@ -479,46 +536,55 @@ def _source_by_id(pilot_dir: str | Path, source_asset_id: UUID) -> SourceRecord:
 
 
 def _window_scores(path: Path, start_s: float, end_s: float) -> tuple[float, float, float]:
-    frame_values: list[np.ndarray] = []
-    audio_chunks: list[np.ndarray] = []
+    frame_values: list[NDArray[np.float32]] = []
+    audio_chunks: list[NDArray[np.float32]] = []
     try:
         with av.open(str(path)) as container:
             if container.streams.video:
-                stream = container.streams.video[0]
-                for frame in container.decode(stream):
-                    if frame.pts is None or frame.time_base is None:
+                video_stream = container.streams.video[0]
+                for video_frame in container.decode(video_stream):
+                    if video_frame.pts is None or video_frame.time_base is None:
                         continue
-                    timestamp = float(frame.pts * frame.time_base)
+                    timestamp = float(video_frame.pts * video_frame.time_base)
                     if timestamp < start_s:
                         continue
                     if timestamp >= end_s:
                         break
-                    array = frame.to_ndarray(format="gray").astype(np.float32)
-                    frame_values.append(array[:: max(1, array.shape[0] // 16), :: max(1, array.shape[1] // 16)])
+                    array = video_frame.to_ndarray(format="gray").astype(np.float32)
+                    frame_values.append(
+                        array[:: max(1, array.shape[0] // 16), :: max(1, array.shape[1] // 16)]
+                    )
             if container.streams.audio:
-                stream = container.streams.audio[0]
-                for frame in container.decode(stream):
-                    if frame.pts is None or frame.time_base is None:
+                audio_stream = container.streams.audio[0]
+                for audio_frame in container.decode(audio_stream):
+                    if audio_frame.pts is None or audio_frame.time_base is None:
                         continue
-                    timestamp = float(frame.pts * frame.time_base)
+                    timestamp = float(audio_frame.pts * audio_frame.time_base)
                     if timestamp < start_s:
                         continue
                     if timestamp >= end_s:
                         break
-                    audio = frame.to_ndarray().astype(np.float32)
+                    audio = audio_frame.to_ndarray().astype(np.float32)
                     audio_chunks.append(audio.reshape(-1))
     except (FFmpegError, OSError, ValueError):
         return 0.0, 0.0, 1.0
 
-    diffs = [float(np.mean(np.abs(b - a))) / 255.0 for a, b in zip(frame_values, frame_values[1:])]
+    diffs = [float(np.mean(np.abs(b - a))) / 255.0 for a, b in pairwise(frame_values)]
     motion = float(mean(diffs)) if diffs else 0.0
     if audio_chunks:
         audio = np.concatenate(audio_chunks)
         if np.max(np.abs(audio)) > 1.5:
             audio = audio / np.iinfo(np.int16).max
-        frame = max(1, len(audio) // 32)
-        rms = np.array([np.sqrt(np.mean(audio[i : i + frame] ** 2)) for i in range(0, len(audio), frame)])
-        audio_activity = float(np.mean(np.abs(np.diff(rms)))) if len(rms) > 1 else float(np.mean(rms))
+        chunk_size = max(1, len(audio) // 32)
+        rms = np.array(
+            [
+                np.sqrt(np.mean(audio[i : i + chunk_size] ** 2))
+                for i in range(0, len(audio), chunk_size)
+            ]
+        )
+        audio_activity = (
+            float(np.mean(np.abs(np.diff(rms)))) if len(rms) > 1 else float(np.mean(rms))
+        )
         silence_ratio = float(np.mean(rms < 0.005)) if len(rms) else 1.0
     else:
         audio_activity = 0.0
@@ -557,7 +623,11 @@ def suggest_segments(
             tags=("missing_modality",),
             notes="Rejected automatically because source is missing required modality.",
         )
-        rows = [segment for segment in _read_segments(pilot_dir) if segment.source_asset_id != source_asset_id]
+        rows = [
+            segment
+            for segment in _read_segments(pilot_dir)
+            if segment.source_asset_id != source_asset_id
+        ]
         rows.append(candidate)
         _write_jsonl(Path(pilot_dir) / SEGMENT_FILE, rows)
         return [candidate]
@@ -574,7 +644,11 @@ def suggest_segments(
     unique_starts = sorted({round(start, 3) for start in starts})
 
     candidates: list[SegmentCandidate] = []
-    existing = [segment for segment in _read_segments(pilot_dir) if segment.source_asset_id != source_asset_id]
+    existing = [
+        segment
+        for segment in _read_segments(pilot_dir)
+        if segment.source_asset_id != source_asset_id
+    ]
     for start in unique_starts:
         end = min(duration, start + window)
         if end - start < min_duration_s:
@@ -611,7 +685,11 @@ def approve_segments(pilot_dir: str | Path, clip_asset_ids: list[UUID]) -> list[
     updated: list[SegmentCandidate] = []
     for segment in _read_segments(pilot_dir):
         if segment.clip_asset_id in wanted and segment.rejection_reason is None:
-            eligible = segment.license_status not in {"unverified-research-quarantine", "unknown", "unverified"}
+            eligible = segment.license_status not in {
+                "unverified-research-quarantine",
+                "unknown",
+                "unverified",
+            }
             updated.append(
                 SegmentCandidate(
                     **{
@@ -660,27 +738,68 @@ def _extract_clip(segment: SegmentCandidate, output: Path) -> None:
     if segment.source_path is None:
         raise ValueError("source_path is required for local clip extraction")
     output.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        "ffmpeg",
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-ss",
-        f"{segment.start_s:.3f}",
-        "-t",
-        f"{segment.duration_s:.3f}",
-        "-i",
-        segment.source_path,
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a:0",
-        "-c",
-        "copy",
-        str(output),
-    ]
-    subprocess.run(command, check=True)
+    with (
+        av.open(segment.source_path) as video_input,
+        av.open(segment.source_path) as audio_input,
+        av.open(str(output), mode="w") as output_container,
+    ):
+        if not video_input.streams.video or not audio_input.streams.audio:
+            raise ValueError("approved pilot clips require both video and audio")
+
+        input_video = video_input.streams.video[0]
+        frame_rate = input_video.average_rate or Fraction(8, 1)
+        output_video = output_container.add_stream("libx264", rate=frame_rate)
+        output_video.width = input_video.codec_context.width
+        output_video.height = input_video.codec_context.height
+        output_video.pix_fmt = "yuv420p"
+
+        input_audio = audio_input.streams.audio[0]
+        sample_rate = input_audio.codec_context.sample_rate or 16_000
+        output_audio = output_container.add_stream("aac", rate=sample_rate)
+        output_audio.layout = "mono"
+        resampler = av.AudioResampler(format="fltp", layout="mono", rate=sample_rate)
+
+        video_index = 0
+        for video_frame in video_input.decode(input_video):
+            if video_frame.pts is None or video_frame.time_base is None:
+                continue
+            timestamp = float(video_frame.pts * video_frame.time_base)
+            if timestamp < segment.start_s:
+                continue
+            if timestamp >= segment.end_s:
+                break
+            video_frame.pts = video_index
+            video_frame.time_base = Fraction(frame_rate.denominator, frame_rate.numerator)
+            video_index += 1
+            for packet in output_video.encode(video_frame):
+                output_container.mux(packet)
+        for packet in output_video.encode():
+            output_container.mux(packet)
+
+        sample_offset = 0
+        for audio_frame in audio_input.decode(input_audio):
+            if audio_frame.pts is None or audio_frame.time_base is None:
+                continue
+            timestamp = float(audio_frame.pts * audio_frame.time_base)
+            frame_end = timestamp + (audio_frame.samples / sample_rate)
+            if frame_end <= segment.start_s:
+                continue
+            if timestamp >= segment.end_s:
+                break
+            for resampled in resampler.resample(audio_frame):
+                resampled.pts = sample_offset
+                resampled.time_base = Fraction(1, sample_rate)
+                sample_offset += resampled.samples
+                for packet in output_audio.encode(resampled):
+                    output_container.mux(packet)
+        for resampled in resampler.resample(None):
+            resampled.pts = sample_offset
+            resampled.time_base = Fraction(1, sample_rate)
+            sample_offset += resampled.samples
+            for packet in output_audio.encode(resampled):
+                output_container.mux(packet)
+        for packet in output_audio.encode():
+            output_container.mux(packet)
 
 
 def build_pilot_manifest(pilot_dir: str | Path, *, dataset_id: str) -> Path:
@@ -757,8 +876,10 @@ def build_report(pilot_dir: str | Path, *, dataset_id: str) -> dict[str, object]
             for line in manifest.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-    total_duration = sum(manifest_durations) if manifest_durations else sum(
-        segment.duration_s for segment in approved
+    total_duration = (
+        sum(manifest_durations)
+        if manifest_durations
+        else sum(segment.duration_s for segment in approved)
     )
     return {
         "dataset_id": dataset_id,
@@ -772,8 +893,12 @@ def build_report(pilot_dir: str | Path, *, dataset_id: str) -> dict[str, object]
         "duplicate_count": sum(count - 1 for count in checksums.values() if count > 1),
         "missing_modality_count": missing_modality,
         "duration_distribution": _bucket([segment.duration_s for segment in segments], 2.0),
-        "motion_intensity_distribution": _bucket([segment.motion_intensity for segment in segments], 0.05),
-        "audio_activity_distribution": _bucket([segment.audio_activity for segment in segments], 0.01),
+        "motion_intensity_distribution": _bucket(
+            [segment.motion_intensity for segment in segments], 0.05
+        ),
+        "audio_activity_distribution": _bucket(
+            [segment.audio_activity for segment in segments], 0.01
+        ),
         "created_at": _now(),
     }
 
@@ -788,4 +913,4 @@ def write_report(pilot_dir: str | Path, *, dataset_id: str) -> Path:
 
 def load_report(pilot_dir: str | Path, *, dataset_id: str) -> dict[str, object]:
     path = Path(pilot_dir) / "datasets" / dataset_id / "report.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
