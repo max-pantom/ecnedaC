@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from cadence.common.config import CadenceConfig
 from cadence.dataset.downloaders import DirectHTTPDownloader, DownloaderChain, YtDlpDownloader
 from cadence.dataset.media import FFmpegMediaProcessor
-from cadence.dataset.records import ApprovalStatus, RightsStatus, SourceRecord
+from cadence.dataset.records import (
+    PERMITTED_RIGHTS,
+    ApprovalStatus,
+    DownloadStatus,
+    RightsStatus,
+    SourceRecord,
+)
 from cadence.dataset.service import GIB, DatasetIntakeService
 from cadence.review.auth import (
     SESSION_COOKIE,
@@ -39,6 +47,8 @@ from cadence.review.media import media_response, resolve_registered_media
 from cadence.review.models import EvidenceReference, StaleRevisionError
 
 _DIRECTORY = Path(__file__).parent
+_REVIEW_CSS = (_DIRECTORY / "static" / "review.css").read_text(encoding="utf-8")
+_REVIEW_CSS_HASH = base64.b64encode(hashlib.sha256(_REVIEW_CSS.encode()).digest()).decode()
 
 
 def create_app(
@@ -68,6 +78,7 @@ def create_app(
     signer = SessionSigner(administrator_secret)
     intake = service or _build_service(config)
     templates = Jinja2Templates(directory=_DIRECTORY / "templates")
+    templates.env.globals["review_css"] = _REVIEW_CSS
     login_limiter = (
         LoginAttemptLimiter(maximum_failures=login_max_failures)
         if login_max_failures is not None
@@ -107,7 +118,7 @@ def create_app(
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
             "form-action 'self'; img-src 'self' data:; media-src 'self'; "
-            "script-src 'self'; style-src 'self'"
+            f"script-src 'self'; style-src 'self' 'sha256-{_REVIEW_CSS_HASH}'"
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -286,6 +297,7 @@ def create_app(
                 "segments": segments,
                 "events": events,
                 "rights_statuses": list(RightsStatus),
+                "eligibility_ready": _eligibility_ready(source),
             },
         )
 
@@ -620,3 +632,16 @@ def _source_metadata(source: SourceRecord) -> dict[str, object]:
         "download_approval": source.download_approval,
         "eligible_for_training": source.eligible_for_training,
     }
+
+
+def _eligibility_ready(source: SourceRecord) -> bool:
+    return (
+        source.rights_status in PERMITTED_RIGHTS
+        and source.source_approval == ApprovalStatus.APPROVED
+        and source.download_approval == ApprovalStatus.APPROVED
+        and source.download_status
+        in {
+            DownloadStatus.NORMALIZED,
+            DownloadStatus.DUPLICATE,
+        }
+    )
