@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import os
 from pathlib import Path
 
 from cadence.common.config import load_config
@@ -11,6 +13,15 @@ from cadence.common.config import load_config
 
 def _json(value: object) -> None:
     print(json.dumps(value, indent=2, default=str, sort_keys=True))
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,6 +65,23 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("--config", required=True)
     package.add_argument("--output", default="artifacts/reports/remote-job.json")
     package.add_argument("--allow-dirty", action="store_true")
+
+    review = subparsers.add_parser("review-serve")
+    review.add_argument("--config", default="configs/vps.yaml")
+    review.add_argument("--host", default="127.0.0.1")
+    review.add_argument("--port", type=int, default=8787)
+    review.add_argument("--allow-non-loopback", action="store_true")
+    review.add_argument(
+        "--external-tunnel",
+        choices=["wormkey"],
+        help=argparse.SUPPRESS,
+    )
+
+    review_share = subparsers.add_parser("review-share")
+    review_share.add_argument("--config", default="configs/vps.yaml")
+    review_share.add_argument("--port", type=int, default=8787)
+    review_share.add_argument("--expires", default="30m")
+    review_share.add_argument("--execute", action="store_true")
 
     remote = subparsers.add_parser("remote-action")
     remote.add_argument(
@@ -155,6 +183,61 @@ def main(argv: list[str] | None = None) -> int:
         job = package_remote_job(config, require_clean=not args.allow_dirty)
         write_remote_job(job, args.output)
         _json({"output": str(Path(args.output).resolve()), "git_commit": job.git_commit})
+    elif args.command == "review-serve":
+        import uvicorn
+
+        from cadence.review.app import create_app
+        from cadence.review.auth import TunnelBasicAuth
+
+        secret = os.getenv("CADENCE_REVIEW_ADMIN_SECRET", "")
+        if len(secret) < 32:
+            raise ValueError("CADENCE_REVIEW_ADMIN_SECRET must contain at least 32 characters")
+        loopback = _is_loopback_host(args.host)
+        secure_deployment = os.getenv("CADENCE_REVIEW_SECURE_DEPLOYMENT", "").lower() == "true"
+        if not loopback and not (args.allow_non_loopback and secure_deployment):
+            raise ValueError(
+                "non-loopback review binding requires --allow-non-loopback and "
+                "CADENCE_REVIEW_SECURE_DEPLOYMENT=true"
+            )
+        tunnel_auth: TunnelBasicAuth | None = None
+        if args.external_tunnel is not None:
+            if not loopback:
+                raise ValueError("external tunnel mode requires a loopback review listener")
+            tunnel_auth = TunnelBasicAuth(
+                username=os.getenv("CADENCE_REVIEW_TUNNEL_BASIC_USERNAME", ""),
+                password=os.getenv("CADENCE_REVIEW_TUNNEL_BASIC_PASSWORD", ""),
+            )
+        app = create_app(
+            load_config(args.config),
+            auth_secret=secret,
+            secure_cookies=args.external_tunnel is not None or not loopback,
+            tunnel_basic_auth=tunnel_auth,
+            allowed_hosts=("127.0.0.1", "localhost") if tunnel_auth is not None else None,
+            login_max_failures=5 if tunnel_auth is not None else None,
+        )
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            proxy_headers=args.external_tunnel is None,
+        )
+    elif args.command == "review-share":
+        from cadence.review.share import (
+            build_wormkey_share_plan,
+            execute_wormkey_share,
+        )
+
+        load_config(args.config)
+        plan = build_wormkey_share_plan(
+            args.config,
+            port=args.port,
+            expires=args.expires,
+            execute=args.execute,
+        )
+        if not args.execute:
+            _json(plan.to_dict())
+        else:
+            return execute_wormkey_share(plan)
     elif args.command == "remote-action":
         from cadence.remote.job import run_remote_action
 

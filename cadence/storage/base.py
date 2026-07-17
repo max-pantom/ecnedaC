@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -48,7 +49,8 @@ class LocalFilesystemStorage:
         minimum_free_bytes: int,
     ) -> None:
         self.root = Path(root).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self.root.chmod(0o700)
         self.maximum_working_bytes = maximum_working_bytes
         self.minimum_free_bytes = minimum_free_bytes
 
@@ -84,7 +86,12 @@ class LocalFilesystemStorage:
         path = self.root.joinpath(*parts).resolve()
         if self.root not in path.parents and path != self.root:
             raise ValueError("storage path escapes the configured root")
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        current = path.parent
+        while current != self.root:
+            current.chmod(0o700)
+            current = current.parent
+        os.chmod(self.root, 0o700)
         return path
 
 

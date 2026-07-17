@@ -1,0 +1,9 @@
+<ol class="audit">
+{% for event in events %}
+  <li>
+    <strong>{{ event.action }}</strong> by {{ event.actor }} at {{ event.occurred_at }}
+    (revision {{ event.revision }}): {{ event.reason }}
+    {% if event.evidence_reference %}· evidence {{ event.evidence_reference.reference }}{% endif %}
+  </li>
+{% else %}<li>No decisions recorded.</li>{% endfor %}
+</ol>

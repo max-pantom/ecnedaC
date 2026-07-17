@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ record.name }} v{{ record.version }} · Cadence{% endblock %}
+{% block content %}
+<p><a href="/">← Review queue</a></p>
+<h1>{{ record.name }} v{{ record.version }}</h1>
+<p>This record, manifest, and report are immutable. Building again creates a new version.</p>
+<dl>
+  <dt>Dataset ID</dt><dd>{{ record.dataset_id }}</dd>
+  <dt>Created</dt><dd>{{ record.created_at }}</dd>
+  <dt>Sources</dt><dd>{{ record.source_ids|length }}</dd>
+  <dt>Segments</dt><dd>{{ record.segment_ids|length }}</dd>
+  <dt>Total bytes</dt><dd>{{ record.total_bytes }}</dd>
+</dl>
+
+<h2>Private build report</h2>
+<pre>{{ report|tojson(indent=2) }}</pre>
+
+<h2>Audit trail</h2>
+{% include "audit.html" %}
+{% endblock %}

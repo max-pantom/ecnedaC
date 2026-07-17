@@ -1,5 +1,16 @@
 # Next milestone: private dataset operations and human review UI
 
+Status: complete locally.
+
+The implementation now includes versioned review/audit contracts, revision-checked service
+mutations, a loopback-first FastAPI/Jinja console, signed administrator sessions, CSRF protection,
+contained range-based media previews, immutable dataset build/report views, owner-only runtime
+permissions, and a generated-media end-to-end acceptance test. No real media was collected, no
+VPS or GPU action was executed, and no private runtime record was added to Git.
+
+An explicitly requested follow-up adds guarded, short-lived Wormkey sharing. It is locally
+validated in dry-run and simulated-process tests; no real Wormkey tunnel was opened.
+
 ## Starting point
 
 `main` is the canonical base. It contains:

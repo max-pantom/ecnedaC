@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Cadence review{% endblock %}
+{% block content %}
+<section class="panel narrow">
+  <h1>Private dataset review</h1>
+  <p>This console is intended for access through the VPS SSH tunnel.</p>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/login">
+    <label>Reviewer name <input name="actor" required maxlength="100" autocomplete="username"></label>
+    <label>Administrator secret
+      <input name="secret" required type="password" autocomplete="current-password">
+    </label>
+    <button type="submit">Sign in</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Review queue · Cadence{% endblock %}
+{% block content %}
+<h1>Review queue</h1>
+<p>Every decision is revision-checked and written to the private audit log.</p>
+<table>
+  <thead><tr><th>Type</th><th>Title</th><th>Stage</th><th>Status</th><th>Revision</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td>{{ item.entity_type }}</td>
+      <td>
+        {% if item.entity_type == "source" %}
+          <a href="/sources/{{ item.entity_id }}">{{ item.title }}</a>
+        {% else %}
+          <a href="/segments/{{ item.entity_id }}">{{ item.title }}</a>
+        {% endif %}
+      </td>
+      <td>{{ item.stage }}</td><td>{{ item.status }}</td><td>{{ item.revision }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5">Nothing currently needs review.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<section class="grid">
+  <form class="panel narrow" method="post" action="/api/v1/datasets/build">
+    <h2>Build immutable dataset version</h2>
+    <p>Only approved segments from currently eligible sources are included.</p>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="expected_revision" value="0">
+    <label>Dataset name
+      <input name="dataset_name" required minlength="2" maxlength="64"
+             pattern="[a-z0-9][a-z0-9_-]{1,63}">
+    </label>
+    <label>Reason <textarea name="reason" required maxlength="1000"></textarea></label>
+    <label>Evidence reference <input name="evidence_reference" maxlength="500"></label>
+    <button type="submit">Build private dataset</button>
+  </form>
+
+  <section class="panel">
+    <h2>Immutable dataset reports</h2>
+    <ul>
+    {% for dataset in datasets %}
+      <li>
+        <a href="/datasets/{{ dataset.name }}">{{ dataset.name }} v{{ dataset.version }}</a>
+        · {{ dataset.segment_ids|length }} segment(s)
+      </li>
+    {% else %}
+      <li>No private dataset versions built yet.</li>
+    {% endfor %}
+    </ul>
+  </section>
+</section>
+{% endblock %}

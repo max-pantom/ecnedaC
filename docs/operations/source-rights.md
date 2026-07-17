@@ -8,6 +8,8 @@ Rights states:
 - `unverified`: default; public availability is not permission.
 - `restricted`: access or terms prohibit the intended use.
 - `rejected`: the source was rejected during rights review.
+- `revoked`: permission that previously applied has been withdrawn.
+- `expired`: permission existed but is no longer current.
 
 Every new source starts as `unverified` with `eligible_for_training: false`. Source approval means
 the media is relevant. Download approval means acquisition is authorized. Training eligibility is
@@ -28,4 +30,4 @@ uv run cadence dataset source eligibility <source-id> --ineligible
 uv run cadence dataset source rights <source-id> --status unverified --notes "Review reopened"
 ```
 
-Restricted and rejected states also reject download approval automatically.
+Restricted, rejected, revoked, and expired states also reject download approval automatically.

@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 
+from cadence.review.models import AuditEvent
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -35,6 +37,8 @@ class RightsStatus(StrEnum):
     UNVERIFIED = "unverified"
     RESTRICTED = "restricted"
     REJECTED = "rejected"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
 
 
 PERMITTED_RIGHTS = {
@@ -93,6 +97,7 @@ class SourceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["0.1.0"] = "0.1.0"
+    revision: int = Field(default=0, ge=0)
     source_id: UUID = Field(default_factory=uuid4)
     url: AnyHttpUrl
     canonical_url: str
@@ -113,7 +118,7 @@ class SourceRecord(BaseModel):
     checksum_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     duplicate_of_source_id: UUID | None = None
     rights_status: RightsStatus = RightsStatus.UNVERIFIED
-    license_notes: str = ""
+    license_notes: str = Field(default="", max_length=1000)
     source_approval: ApprovalStatus = ApprovalStatus.PENDING
     download_approval: ApprovalStatus = ApprovalStatus.PENDING
     eligible_for_training: bool = False
@@ -139,6 +144,7 @@ class SegmentCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["0.1.0"] = "0.1.0"
+    revision: int = Field(default=0, ge=0)
     segment_id: UUID = Field(default_factory=uuid4)
     source_id: UUID
     start_seconds: float = Field(ge=0)
@@ -185,6 +191,7 @@ class RegistryState(BaseModel):
     sources: dict[str, SourceRecord] = Field(default_factory=dict)
     segments: dict[str, SegmentCandidate] = Field(default_factory=dict)
     datasets: dict[str, DatasetRecord] = Field(default_factory=dict)
+    audit_events: tuple[AuditEvent, ...] = ()
 
 
 class IntakeRegistry:
@@ -192,7 +199,8 @@ class IntakeRegistry:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self.root.chmod(0o700)
         self.path = self.root / "registry.json"
         self.lock_path = self.root / ".registry.lock"
 
@@ -203,14 +211,19 @@ class IntakeRegistry:
 
     def save(self, state: RegistryState) -> None:
         temporary = self.path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(state.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(state.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, self.path)
+        self.path.chmod(0o600)
 
     def mutate(self, callback: Callable[[RegistryState], None]) -> RegistryState:
         with self.lock_path.open("a+") as lock:
+            self.lock_path.chmod(0o600)
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             state = self.load()
             callback(state)

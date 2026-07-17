@@ -1,3 +1,4 @@
+import stat
 from pathlib import Path
 
 import pytest
@@ -29,3 +30,15 @@ def test_storage_path_cannot_escape_root(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="escapes"):
         storage.path_for("..", "outside")
+
+
+def test_storage_directories_are_owner_only(tmp_path: Path) -> None:
+    root = tmp_path / "private"
+    storage = LocalFilesystemStorage(
+        root, maximum_working_bytes=1000, minimum_free_bytes=0
+    )
+    target = storage.path_for("sources", "normalized", "sample.mp4")
+
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(target.parent.parent.stat().st_mode) == 0o700
