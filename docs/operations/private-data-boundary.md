@@ -42,6 +42,10 @@ The GPU host may receive an authorized manifest and media through private storag
 VPS-to-GPU transfer. It must pull code by exact Git commit, but it must not obtain dataset contents
 from Git.
 
+A temporary, explicitly executed Wormkey review tunnel does not copy runtime records into Git.
+However, requested pages and previews transit a third-party TLS-terminating edge. Treat its
+short-lived URL and outer credentials as secrets, and close it as soon as human review finishes.
+
 ## Enforcement
 
 `.gitignore` excludes the private roots, JSONL records, common media formats, checkpoints, and

@@ -13,3 +13,8 @@ clips, source queues, the intake registry, provenance-bearing manifests, dataset
 checkpoints, and evaluation outputs remain on the VPS or in private object storage. The
 repository acceptance gate runs `scripts/check_repository_data_policy.py` and fails if Git tracks
 one of these private artifacts.
+
+Temporary Wormkey review sharing is dry-run-first and requires `--execute`. Cadence keeps the
+application on loopback, adds ephemeral outer authentication and secure cookies, constrains the
+tunnel lifetime, and suppresses provider owner-control URLs. It does not make Wormkey an
+end-to-end private network: its edge terminates TLS and transports requested content.

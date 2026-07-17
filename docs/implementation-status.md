@@ -12,9 +12,10 @@
 | Download/normalization adapter pipeline | Implemented and locally validated with mocked downloads |
 | CPU segment suggestion and dataset assembly | Implemented and locally validated with generated media |
 | Private human review console and audit history | Implemented and locally validated through synthetic dataset build |
+| Guarded temporary Wormkey sharing | Implemented and locally validated without opening a real tunnel |
 
 No component is remotely smoke-tested, trained, evaluated on real data, or production-ready.
 
-Local acceptance: the repository privacy policy, Ruff, strict Mypy, 92 Pytest cases, synthetic
+Local acceptance: the repository privacy policy, Ruff, strict Mypy, 105 Pytest cases, synthetic
 optimizer/checkpoint recovery, and dry-run remote packaging passed on the Intel Mac control
 environment.

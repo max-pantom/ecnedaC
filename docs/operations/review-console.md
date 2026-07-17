@@ -39,6 +39,47 @@ Do not expose the default console publicly. A non-loopback bind is refused unles
 only a guardrail acknowledgement; TLS, firewalling, and upstream access control are still operator
 responsibilities.
 
+## Temporary Wormkey link
+
+When an SSH tunnel is inconvenient, the VPS agent can create a short-lived Wormkey link. This is
+an explicit public-tunnel operation, not the default deployment mode. Node.js 18 or newer and
+`npx` must already be available on the VPS.
+
+First inspect the plan. This performs no network action:
+
+```bash
+uv run --group operations-ui cadence review-share \
+  --config configs/vps.yaml \
+  --expires 30m
+```
+
+Then explicitly execute it:
+
+```bash
+uv run --group operations-ui cadence review-share \
+  --config configs/vps.yaml \
+  --expires 30m \
+  --execute
+```
+
+Cadence pins `wormkey@0.1.5`, binds the review server only to `127.0.0.1`, forces secure session
+cookies, applies a login-attempt limit, and adds an independently generated outer Basic Auth
+challenge before the Cadence administrator login. The expiry must be between five minutes and two
+hours. Wormkey output containing owner controls is suppressed; the command emits one JSON object
+containing only the share URL, expiry, and temporary outer username/password. A VPS agent may
+relay that JSON response to the operator. It never emits `CADENCE_REVIEW_ADMIN_SECRET`.
+
+The command remains in the foreground. The link closes when it expires, the agent stops the
+command, or either process fails; Cadence and Wormkey are cleaned up together. Do not add the
+Wormkey overlay script to Cadence.
+
+Wormkey is a third-party beta tunnel whose edge terminates public TLS. The provider transports the
+HTTP requests and media previews that pass through the link, and the pinned npm program executes
+as the VPS operator. Cadence strips its secrets from the npm subprocess environment, but this is
+not equivalent to end-to-end private networking or process isolation. Use the smallest practical
+expiry, relay credentials only through the trusted agent session, and close the tunnel immediately
+after review.
+
 ## Review sequence
 
 1. Inspect the source metadata and preview only registered, contained media.

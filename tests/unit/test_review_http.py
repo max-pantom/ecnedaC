@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from cadence.common.config import CadenceConfig, load_config
 from cadence.review.app import create_app
-from cadence.review.auth import SESSION_COOKIE, SessionSigner
+from cadence.review.auth import SESSION_COOKIE, SessionSigner, TunnelBasicAuth
 from cadence.review.models import StaleRevisionError
 
 SECRET = "test-administrator-secret-that-is-long-enough"
@@ -108,6 +109,11 @@ def _login(client: TestClient) -> str:
     token = client.cookies.get(SESSION_COOKIE)
     assert token is not None
     return SessionSigner(SECRET).verify(token).csrf_token
+
+
+def _basic_header(username: str, password: str) -> dict[str, str]:
+    encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"authorization": f"Basic {encoded}"}
 
 
 def test_health_is_public_but_review_endpoints_require_authentication(tmp_path: Path) -> None:
@@ -242,3 +248,77 @@ def test_media_route_never_interprets_entity_id_as_a_path(tmp_path: Path) -> Non
     _login(client)
 
     assert client.get("/api/v1/media/..%2F..%2Fetc%2Fpasswd").status_code == 404
+
+
+def test_tunnel_mode_requires_outer_auth_and_forces_secure_cookie(tmp_path: Path) -> None:
+    media = tmp_path / "private" / "source.mp4"
+    media.parent.mkdir(parents=True)
+    media.write_bytes(b"media")
+    service = FakeService(_source(media))
+    tunnel_auth = TunnelBasicAuth(username="cadence", password="p" * 24)
+    app = create_app(
+        _config(tmp_path),
+        service=service,  # type: ignore[arg-type]
+        auth_secret=SECRET,
+        secure_cookies=True,
+        tunnel_basic_auth=tunnel_auth,
+        allowed_hosts=("testserver",),
+        login_max_failures=2,
+    )
+    client = TestClient(app)
+    outer_headers = _basic_header(tunnel_auth.username, tunnel_auth.password)
+
+    unauthorized = client.get("/healthz")
+    assert unauthorized.status_code == 401
+    assert unauthorized.headers["www-authenticate"].startswith("Basic ")
+    assert client.get("/healthz", headers=outer_headers).status_code == 200
+
+    login = client.post(
+        "/login",
+        data={"actor": "reviewer", "secret": SECRET},
+        headers=outer_headers,
+        follow_redirects=False,
+    )
+    assert login.status_code == 303
+    assert "secure" in login.headers["set-cookie"].lower()
+
+
+def test_tunnel_mode_rate_limits_administrator_secret_failures(tmp_path: Path) -> None:
+    service = FakeService(_source(tmp_path / "private" / "source.mp4"))
+    tunnel_auth = TunnelBasicAuth(username="cadence", password="p" * 24)
+    app = create_app(
+        _config(tmp_path),
+        service=service,  # type: ignore[arg-type]
+        auth_secret=SECRET,
+        tunnel_basic_auth=tunnel_auth,
+        allowed_hosts=("testserver",),
+        login_max_failures=2,
+    )
+    client = TestClient(app)
+    headers = _basic_header(tunnel_auth.username, tunnel_auth.password)
+    body = {"actor": "reviewer", "secret": "incorrect"}
+
+    assert client.post("/login", data=body, headers=headers).status_code == 401
+    assert client.post("/login", data=body, headers=headers).status_code == 401
+    limited = client.post("/login", data=body, headers=headers)
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "300"
+
+
+def test_tunnel_mode_rejects_unexpected_local_host_header(tmp_path: Path) -> None:
+    service = FakeService(_source(tmp_path / "private" / "source.mp4"))
+    tunnel_auth = TunnelBasicAuth(username="cadence", password="p" * 24)
+    app = create_app(
+        _config(tmp_path),
+        service=service,  # type: ignore[arg-type]
+        auth_secret=SECRET,
+        tunnel_basic_auth=tunnel_auth,
+        allowed_hosts=("127.0.0.1",),
+    )
+    client = TestClient(app)
+    headers = {
+        **_basic_header(tunnel_auth.username, tunnel_auth.password),
+        "host": "unexpected.invalid",
+    }
+
+    assert client.get("/healthz", headers=headers).status_code == 400

@@ -8,7 +8,9 @@ import hmac
 import json
 import os
 import secrets
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Final
 
@@ -25,6 +27,65 @@ class ReviewSession:
     actor: str
     csrf_token: str
     issued_at: int
+
+
+@dataclass(frozen=True)
+class TunnelBasicAuth:
+    """Ephemeral outer authentication for a temporary public tunnel."""
+
+    username: str
+    password: str
+
+    def __post_init__(self) -> None:
+        if not self.username or len(self.username) > 100:
+            raise ValueError("tunnel username must contain between 1 and 100 characters")
+        if len(self.password) < 24:
+            raise ValueError("tunnel password must contain at least 24 characters")
+
+    def verify(self, authorization: str | None) -> bool:
+        if authorization is None or not authorization.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
+            supplied_username, supplied_password = decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            return False
+        return hmac.compare_digest(supplied_username, self.username) and hmac.compare_digest(
+            supplied_password, self.password
+        )
+
+
+class LoginAttemptLimiter:
+    """Small process-local limiter for administrator-secret failures."""
+
+    def __init__(self, maximum_failures: int = 5, window_seconds: int = 300) -> None:
+        if maximum_failures < 1 or window_seconds < 1:
+            raise ValueError("login rate-limit values must be positive")
+        self.maximum_failures = maximum_failures
+        self.window_seconds = window_seconds
+        self._failures: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def allowed(self, *, now: float | None = None) -> bool:
+        timestamp = time.monotonic() if now is None else now
+        with self._lock:
+            self._discard_expired(timestamp)
+            return len(self._failures) < self.maximum_failures
+
+    def record_failure(self, *, now: float | None = None) -> None:
+        timestamp = time.monotonic() if now is None else now
+        with self._lock:
+            self._discard_expired(timestamp)
+            self._failures.append(timestamp)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._failures.clear()
+
+    def _discard_expired(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        while self._failures and self._failures[0] <= cutoff:
+            self._failures.popleft()
 
 
 def configured_secret(explicit: str | None = None) -> str:

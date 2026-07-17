@@ -89,6 +89,13 @@ uv run --group operations-ui cadence review-serve --config configs/vps.yaml
 It binds to loopback by default and should be reached through an SSH tunnel. See
 [the review-console operations guide](docs/operations/review-console.md).
 
+For an explicitly authorized, short-lived Wormkey link, inspect and then execute the guarded plan:
+
+```bash
+uv run --group operations-ui cadence review-share --config configs/vps.yaml --expires 30m
+uv run --group operations-ui cadence review-share --config configs/vps.yaml --expires 30m --execute
+```
+
 ## Launch-video research workflow
 
 This branch also retains the earlier file-oriented launch-video pilot. Its commands live under

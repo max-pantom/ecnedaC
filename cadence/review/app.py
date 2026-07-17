@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from cadence.common.config import CadenceConfig
 from cadence.dataset.downloaders import DirectHTTPDownloader, DownloaderChain, YtDlpDownloader
@@ -23,8 +24,10 @@ from cadence.review.auth import (
     SESSION_COOKIE,
     SESSION_MAX_AGE_SECONDS,
     AuthenticationError,
+    LoginAttemptLimiter,
     ReviewSession,
     SessionSigner,
+    TunnelBasicAuth,
     configured_secret,
     verify_administrator_secret,
     verify_csrf,
@@ -41,12 +44,20 @@ def create_app(
     auth_secret: str | None = None,
     *,
     secure_cookies: bool = False,
+    tunnel_basic_auth: TunnelBasicAuth | None = None,
+    allowed_hosts: tuple[str, ...] | None = None,
+    login_max_failures: int | None = None,
 ) -> FastAPI:
     """Build the private console; callers must bind Uvicorn to loopback by default."""
     administrator_secret = configured_secret(auth_secret)
     signer = SessionSigner(administrator_secret)
     intake = service or _build_service(config)
     templates = Jinja2Templates(directory=_DIRECTORY / "templates")
+    login_limiter = (
+        LoginAttemptLimiter(maximum_failures=login_max_failures)
+        if login_max_failures is not None
+        else None
+    )
 
     app = FastAPI(
         title="Cadence private dataset review",
@@ -57,11 +68,24 @@ def create_app(
     app.state.config = config
     app.state.intake_service = intake
     app.state.default_bind_host = "127.0.0.1"
+    if allowed_hosts is not None:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
     app.mount("/static", StaticFiles(directory=_DIRECTORY / "static"), name="static")
 
     @app.middleware("http")
     async def private_console_headers(request: Request, call_next: Any) -> Response:
-        response: Response = await call_next(request)
+        if tunnel_basic_auth is not None and not tunnel_basic_auth.verify(
+            request.headers.get("authorization")
+        ):
+            response = Response(
+                "Temporary tunnel authentication required.",
+                status_code=401,
+                headers={
+                    "WWW-Authenticate": 'Basic realm="Cadence temporary review", charset="UTF-8"'
+                },
+            )
+        else:
+            response = await call_next(request)
         response.headers["Cache-Control"] = response.headers.get(
             "Cache-Control", "private, no-store"
         )
@@ -118,16 +142,28 @@ def create_app(
 
     @app.post("/login")
     async def login(request: Request) -> Response:
+        if login_limiter is not None and not login_limiter.allowed():
+            return templates.TemplateResponse(
+                request,
+                "login.html",
+                {"error": "Too many failed sign-in attempts. Try again in five minutes."},
+                status_code=429,
+                headers={"Retry-After": "300"},
+            )
         payload = await _request_payload(request)
         supplied_secret = _required_text(payload, "secret")
         actor = _required_text(payload, "actor")
         if not verify_administrator_secret(supplied_secret, administrator_secret):
+            if login_limiter is not None:
+                login_limiter.record_failure()
             return templates.TemplateResponse(
                 request,
                 "login.html",
                 {"error": "Invalid administrator secret."},
                 status_code=401,
             )
+        if login_limiter is not None:
+            login_limiter.reset()
         token, _ = signer.issue(actor)
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
