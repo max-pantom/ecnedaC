@@ -103,4 +103,3 @@ class S3CompatibleStorage:
 
     def path_for(self, *parts: str) -> Path:
         raise NotImplementedError("S3-compatible storage does not expose local paths")
-

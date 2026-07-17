@@ -7,4 +7,3 @@ still making URL, rights, approval, segment, and dataset state recoverable and i
 Downloader and object-storage behavior is protocol-driven. Direct HTTP and optional `yt-dlp`
 adapters are replaceable. S3-compatible storage is deliberately an inactive interface until an R2
 migration is authorized. All unknown rights remain unverified and training-ineligible.
-

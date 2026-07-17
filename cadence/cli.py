@@ -51,15 +51,24 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("--allow-dirty", action="store_true")
 
     remote = subparsers.add_parser("remote-action")
-    remote.add_argument("action", choices=[
-        "bootstrap_vps", "doctor_vps", "submit_job", "sync_checkpoints",
-        "fetch_results", "terminate_gpu",
-    ])
+    remote.add_argument(
+        "action",
+        choices=[
+            "bootstrap_vps",
+            "doctor_vps",
+            "submit_job",
+            "sync_checkpoints",
+            "fetch_results",
+            "terminate_gpu",
+        ],
+    )
     remote.add_argument("--config", default="configs/vps.yaml")
     remote.add_argument("--execute", action="store_true")
     from cadence.dataset.cli import add_dataset_parsers
+    from cadence.ingestion.pilot_cli import add_pilot_parsers
 
     add_dataset_parsers(subparsers)
+    add_pilot_parsers(subparsers)
     return parser
 
 
@@ -81,22 +90,31 @@ def main(argv: list[str] | None = None) -> int:
 
         config = load_config(args.config)
         video, audio = build_models(config)
-        _json({
-            "video_parameters": count_parameters(video),
-            "audio_parameters": count_parameters(audio),
-            "video_memory": estimate_training_memory(
-                video,
-                (config.runtime.microbatch_size, 3, config.data.num_frames,
-                 config.data.frame_size, config.data.frame_size),
-            ).__dict__,
-        })
+        _json(
+            {
+                "video_parameters": count_parameters(video),
+                "audio_parameters": count_parameters(audio),
+                "video_memory": estimate_training_memory(
+                    video,
+                    (
+                        config.runtime.microbatch_size,
+                        3,
+                        config.data.num_frames,
+                        config.data.frame_size,
+                        config.data.frame_size,
+                    ),
+                ).__dict__,
+            }
+        )
     elif args.command == "train-synthetic":
         from cadence.training.synthetic import run_synthetic_training
 
         config = load_config(args.config)
-        _json(run_synthetic_training(
-            config, checkpoint_path=args.checkpoint, resume_from=args.resume_from
-        ))
+        _json(
+            run_synthetic_training(
+                config, checkpoint_path=args.checkpoint, resume_from=args.resume_from
+            )
+        )
     elif args.command == "retrieval-eval":
         import torch
 
@@ -114,11 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "train-contrastive":
         from cadence.training.runner import run_contrastive_training
 
-        _json(
-            run_contrastive_training(
-                load_config(args.config), resume_from=args.resume_from
-            )
-        )
+        _json(run_contrastive_training(load_config(args.config), resume_from=args.resume_from))
     elif args.command == "checkpoint-inspect":
         from cadence.training.checkpoint import inspect_checkpoint
 
@@ -138,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
         from cadence.dataset.cli import handle_dataset_command
 
         _json(handle_dataset_command(args))
+    elif args.command == "pilot":
+        from cadence.ingestion.pilot_cli import handle_pilot_command
+
+        _json(handle_pilot_command(args))
     return 0
 
 

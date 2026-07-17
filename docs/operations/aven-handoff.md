@@ -47,4 +47,3 @@ uv run cadence dataset report launch-pilot
 Never run GPU training, scrape large URL lists, bypass source controls, edit `registry.json` by
 hand, or put credentials in the repository. Escalate code defects, schema changes, and downloader
 adapter changes to the primary Cadence coding agent.
-

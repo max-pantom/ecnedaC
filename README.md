@@ -59,3 +59,37 @@ uv run cadence storage report
 
 See [the dataset-intake operations guide](docs/operations/dataset-intake.md) for the full safe
 workflow and recovery procedures.
+
+## Launch-video research workflow
+
+This branch also retains the earlier file-oriented launch-video pilot. Its commands live under
+`cadence pilot` so they do not conflict with the audited intake workflow above. The pilot supports
+batch candidate capture and direct registration of a local, lawfully obtained media file:
+
+```bash
+uv run cadence pilot source add \
+  https://example.com/a https://example.com/b \
+  --submitted-by max
+
+uv run cadence pilot source add \
+  --media-path /path/to/source.mp4 \
+  --source-url https://example.com/launch-video \
+  --creator "Example Studio" \
+  --collection-method user-submitted-local-file \
+  --license-status synthetic-generated
+```
+
+The remaining research flow is:
+
+```bash
+uv run cadence pilot source inspect --source all
+uv run cadence pilot source approve --source <source-asset-id>
+uv run cadence pilot segments suggest --source all --min-duration 4 --max-duration 10
+uv run cadence pilot segments approve --clip <clip-asset-id>
+uv run cadence pilot build pilot-launch-v0
+uv run cadence pilot report pilot-launch-v0
+```
+
+`pilot source download` requires `yt-dlp` and only downloads approved sources. Downloading never
+grants training eligibility; unverified rights remain excluded. The VPS is a lightweight dataset
+coordination and preprocessing host, not a GPU training machine.

@@ -21,4 +21,3 @@ storage and rerun the command.
 Pilot data lives below `data/intake/` by default. The registry, raw sources, normalized sources,
 candidate segments, versioned manifests, and reports share the same 20 GiB accounting boundary.
 R2/S3 credentials are not needed and must not be added during this milestone.
-

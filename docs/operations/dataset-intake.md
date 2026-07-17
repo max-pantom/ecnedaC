@@ -72,4 +72,3 @@ uv run cadence dataset report launch-pilot
 Each build creates the next `vNNNN` directory and immutable manifest/report pair. Only approved
 segments from training-eligible sources are included. Splits are assigned at the source-video
 level, so clips from one source cannot leak across train, validation, and test.
-

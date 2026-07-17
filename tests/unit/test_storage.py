@@ -29,4 +29,3 @@ def test_storage_path_cannot_escape_root(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="escapes"):
         storage.path_for("..", "outside")
-

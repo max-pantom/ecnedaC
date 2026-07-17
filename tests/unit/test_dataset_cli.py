@@ -21,4 +21,3 @@ def test_required_dataset_cli_shapes_parse() -> None:
     ]
     for command in commands:
         assert parser.parse_args(command).command in {"dataset", "storage"}
-

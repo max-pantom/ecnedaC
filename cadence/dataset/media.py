@@ -115,7 +115,6 @@ class FFmpegMediaProcessor:
             check=True,
         )
         return self.probe(destination)
-
     def extract_segment(
         self, source: Path, destination: Path, start_seconds: float, duration_seconds: float
     ) -> MediaMetadata:
@@ -155,4 +154,3 @@ class FFmpegMediaProcessor:
             check=True,
         )
         return self.probe(destination)
-

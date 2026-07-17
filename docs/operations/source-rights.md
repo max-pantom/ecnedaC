@@ -29,4 +29,3 @@ uv run cadence dataset source rights <source-id> --status unverified --notes "Re
 ```
 
 Restricted and rejected states also reject download approval automatically.
-
