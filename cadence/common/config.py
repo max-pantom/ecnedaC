@@ -159,6 +159,17 @@ def _resolve_paths(config: CadenceConfig, repo_root: Path) -> CadenceConfig:
     return CadenceConfig.model_validate(values)
 
 
+def _validate_private_runtime_paths(config: CadenceConfig, repo_root: Path) -> None:
+    if (
+        config.runtime.profile == "vps"
+        and config.paths.intake_root.is_relative_to(repo_root.resolve())
+    ):
+        raise ValueError(
+            "VPS intake_root must be outside the Git worktree; "
+            "use /srv/cadence/private or another private absolute path"
+        )
+
+
 def load_config(path: str | Path, *, repo_root: str | Path | None = None) -> CadenceConfig:
     config_path = Path(path).expanduser().resolve()
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -167,4 +178,6 @@ def load_config(path: str | Path, *, repo_root: str | Path | None = None) -> Cad
     _apply_env_overrides(raw)
     config = CadenceConfig.model_validate(raw)
     root = Path(repo_root).resolve() if repo_root else config_path.parent.parent
-    return _resolve_paths(config, root)
+    resolved = _resolve_paths(config, root)
+    _validate_private_runtime_paths(resolved, root)
+    return resolved

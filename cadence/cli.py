@@ -20,6 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
     config_check = subparsers.add_parser("config-check")
     config_check.add_argument("--config", required=True)
 
+    data_policy = subparsers.add_parser("data-policy")
+    data_policy_commands = data_policy.add_subparsers(dest="data_policy_command", required=True)
+    data_policy_check = data_policy_commands.add_parser("check")
+    data_policy_check.add_argument("--repo-root", default=".")
+
     fixture = subparsers.add_parser("fixture-generate")
     fixture.add_argument("--output-dir", required=True)
 
@@ -76,6 +81,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "config-check":
         _json(load_config(args.config).model_dump(mode="json"))
+    elif args.command == "data-policy":
+        from cadence.common.data_policy import check_repository_data_policy
+
+        report = check_repository_data_policy(args.repo_root)
+        _json(report.to_dict())
+        return 0 if report.passed else 1
     elif args.command == "fixture-generate":
         from cadence.ingestion.fixtures import generate_fixtures
 

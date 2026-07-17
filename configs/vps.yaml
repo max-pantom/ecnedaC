@@ -33,7 +33,7 @@ paths:
   manifest_path: null
   checkpoint_dir: artifacts/checkpoints
   report_dir: artifacts/reports
-  intake_root: data/intake
+  intake_root: /srv/cadence/private
 dataset_intake:
   maximum_working_storage_gb: 20.0
   minimum_free_disk_gb: 15.0

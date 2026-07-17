@@ -1,0 +1,57 @@
+# Private data boundary
+
+Cadence uses Git to distribute implementation code, typed schemas, documentation, configuration
+templates, and synthetic-fixture generators. Git must never distribute the real dataset.
+
+## Allowed in Git
+
+- Python and shell source code
+- Schema definitions and generated type declarations
+- Configuration templates without credentials or private endpoints
+- Documentation containing synthetic examples
+- Tests and code that generate synthetic media at test time
+- Empty `.gitkeep` placeholders
+
+## VPS or private object storage only
+
+- Real source video or audio
+- Downloaded originals and normalized media
+- Extracted candidate or approved clips
+- Source queues and `registry.json`
+- Provenance-bearing JSONL manifests
+- Dataset reports containing source or rights metadata
+- Checkpoints, embeddings, evaluation outputs, and exports
+- Credentials, cookies, access tokens, private contracts, or license documents
+
+The VPS profile uses `/srv/cadence/private` as its runtime root. Local/test profiles may use
+repository-relative paths only for generated synthetic fixtures. Repository ignore and index
+checks also protect these conventional paths:
+
+```text
+data/intake/
+data/pilots/
+data/manifests/
+data/cache/
+artifacts/
+```
+
+The GPU host may receive an authorized manifest and media through private storage or an explicit
+VPS-to-GPU transfer. It must pull code by exact Git commit, but it must not obtain dataset contents
+from Git.
+
+## Enforcement
+
+`.gitignore` excludes the private roots, JSONL records, common media formats, checkpoints, and
+generated artifacts. Before every commit or deployment, run:
+
+```bash
+uv run cadence data-policy check
+make data-policy
+```
+
+The same check is part of `make accept`. It examines Git's tracked-file index rather than only the
+working directory, so force-added private files are rejected.
+
+If private data was already pushed, deleting it in a later commit does not remove it from Git
+history. Stop using or sharing the affected identifier, assess whether credentials or private
+rights information were exposed, and obtain explicit approval before rewriting published history.

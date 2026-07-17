@@ -2,6 +2,10 @@
 
 Use these commands from the Cadence repository on the VPS. The default dataset profile is
 `configs/vps.yaml`; add `dataset --config <path>` immediately after `dataset` to use another one.
+All state created by this workflow is VPS-private. Do not add the registry, source queue, media,
+segments, manifests, reports, or training artifacts to Git.
+The default VPS intake root is `/srv/cadence/private`; configuration loading rejects a VPS root
+inside the Git checkout.
 
 ## 1. Submit and inspect
 
@@ -72,3 +76,14 @@ uv run cadence dataset report launch-pilot
 Each build creates the next `vNNNN` directory and immutable manifest/report pair. Only approved
 segments from training-eligible sources are included. Splits are assigned at the source-video
 level, so clips from one source cannot leak across train, validation, and test.
+
+The resulting manifest remains on the VPS or is copied to private object storage for an authorized
+GPU job. It is not committed to the repository because it contains source identifiers, paths,
+rights metadata, checksums, and provenance.
+
+## Human review
+
+The CLI is currently the authoritative review interface. Rights classification, source approval,
+download approval, training eligibility, and segment approval are all manual actions. The next
+recommended milestone is a small authenticated review console that calls the same
+`DatasetIntakeService`; it must not duplicate or bypass the service's validation rules.
