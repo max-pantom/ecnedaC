@@ -54,3 +54,6 @@ remote:
   maximum_runtime_minutes: 360
   vps_host: null
   vast_instance_id: null
+vps_operations:
+  backup_retention_count: 7
+  review_health_url: http://127.0.0.1:8787/healthz

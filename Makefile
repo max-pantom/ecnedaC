@@ -1,4 +1,4 @@
-.PHONY: setup setup-review test lint typecheck data-policy gpu-deps-check accept
+.PHONY: setup setup-review test lint typecheck data-policy gpu-deps-check vps-plan accept
 
 setup:
 	uv sync
@@ -21,6 +21,9 @@ data-policy:
 gpu-deps-check:
 	uv lock --check
 	python3 scripts/verify_gpu_dependencies.py
+
+vps-plan:
+	./scripts/vps/prepare_private_stack.sh --expected-commit $$(git rev-parse HEAD)
 
 accept: data-policy lint typecheck test
 	uv run cadence train-synthetic --config configs/test.yaml --checkpoint artifacts/checkpoints/acceptance.pt

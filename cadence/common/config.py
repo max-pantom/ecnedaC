@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -90,6 +92,30 @@ class RemoteConfig(StrictModel):
     vast_instance_id: str | None = None
 
 
+class VpsOperationsConfig(StrictModel):
+    backup_retention_count: int = Field(default=7, ge=1, le=30)
+    review_health_url: str = "http://127.0.0.1:8787/healthz"
+
+    @field_validator("review_health_url")
+    @classmethod
+    def require_loopback_health_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme != "http" or parsed.username or parsed.password or parsed.query:
+            raise ValueError("review health URL must be plain loopback HTTP without credentials")
+        if parsed.path != "/healthz" or parsed.fragment:
+            raise ValueError("review health URL must target /healthz")
+        host = parsed.hostname
+        if host is None:
+            raise ValueError("review health URL requires a host")
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host.lower() == "localhost"
+        if not loopback:
+            raise ValueError("review health URL must use a loopback host")
+        return value
+
+
 class CadenceConfig(StrictModel):
     runtime: RuntimeConfig
     data: DataConfig
@@ -98,6 +124,7 @@ class CadenceConfig(StrictModel):
     paths: PathsConfig
     dataset_intake: DatasetIntakeConfig
     remote: RemoteConfig
+    vps_operations: VpsOperationsConfig = Field(default_factory=VpsOperationsConfig)
 
     @model_validator(mode="after")
     def enforce_profile_safety(self) -> CadenceConfig:

@@ -15,9 +15,10 @@
 | Guarded temporary Wormkey sharing | Implemented and locally validated without opening a real tunnel |
 | Canonical dataset workflow and legacy source migration | Implemented and locally validated |
 | GitHub acceptance CI and GPU dependency verification | Implemented and locally validated |
+| Private VPS exact-release, doctor, and metadata recovery controls | Implemented and locally validated; not remotely executed |
 
 No component is remotely smoke-tested, trained, evaluated on real data, or production-ready.
 
-Local acceptance: the repository privacy policy, Ruff, strict Mypy, 97 Pytest cases, synthetic
+Local acceptance: the repository privacy policy, Ruff, strict Mypy, Pytest, synthetic
 optimizer/checkpoint recovery, and dry-run remote packaging passed on the Intel Mac control
 environment.

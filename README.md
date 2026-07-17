@@ -96,6 +96,32 @@ uv run --group operations-ui cadence review-share --config configs/vps.yaml --ex
 uv run --group operations-ui cadence review-share --config configs/vps.yaml --expires 30m --execute
 ```
 
+## Private VPS release preparation
+
+After the human VPS-access gate is approved, a VPS operator can inspect the exact deployment plan
+without changing the host:
+
+```bash
+./scripts/vps/prepare_private_stack.sh \
+  --expected-commit <full-approved-40-character-sha>
+```
+
+Adding `--execute` verifies the exact clean checkout, performs a frozen dependency sync, checks the
+VPS configuration and repository data policy, prepares the owner-only private runtime, and runs a
+sanitized deployment doctor. It does not start the review console, open a tunnel, register sources,
+download media, or train.
+
+Metadata-only recovery controls are also dry-run or rehearsal oriented:
+
+```bash
+uv run --no-sync cadence vps --config configs/vps.yaml backup
+uv run --no-sync cadence vps --config configs/vps.yaml backup --execute
+uv run --no-sync cadence vps --config configs/vps.yaml \
+  restore-rehearsal <opaque-backup-id>
+```
+
+See [the private VPS deployment guide](docs/operations/vps-deployment.md).
+
 ## Retired pilot registry migration
 
 `cadence dataset` is the only dataset workflow. The old `cadence pilot` command and its separate

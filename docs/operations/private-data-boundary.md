@@ -38,6 +38,11 @@ artifacts/
 The intake runtime creates private directories with mode `0700` and registry, lock, manifest,
 report, and managed media files with mode `0600`.
 
+VPS metadata recovery archives live below the private runtime root, use mode `0600`, and are also
+excluded from Git. They contain the registry plus JSON/JSONL dataset metadata, but never source
+media, candidate clips, credentials, or external evidence contents. The checked-in restore command
+is an isolated rehearsal and never overwrites production state.
+
 The GPU host may receive an authorized manifest and media through private storage or an explicit
 VPS-to-GPU transfer. It must pull code by exact Git commit, but it must not obtain dataset contents
 from Git.

@@ -97,6 +97,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     remote.add_argument("--config", default="configs/vps.yaml")
     remote.add_argument("--execute", action="store_true")
+
+    vps = subparsers.add_parser("vps")
+    vps.add_argument("--config", default="configs/vps.yaml")
+    vps_commands = vps.add_subparsers(dest="vps_command", required=True)
+    vps_prepare = vps_commands.add_parser("prepare")
+    vps_prepare.add_argument("--execute", action="store_true")
+    vps_doctor = vps_commands.add_parser("doctor")
+    vps_doctor.add_argument("--expected-commit", required=True)
+    vps_doctor.add_argument("--repo-root", default=".")
+    vps_doctor.add_argument("--require-health", action="store_true")
+    vps_backup = vps_commands.add_parser("backup")
+    vps_backup.add_argument("--repo-root", default=".")
+    vps_backup.add_argument("--execute", action="store_true")
+    vps_restore = vps_commands.add_parser("restore-rehearsal")
+    vps_restore.add_argument("backup_id")
     from cadence.dataset.cli import add_dataset_parsers
 
     add_dataset_parsers(subparsers)
@@ -240,6 +255,36 @@ def main(argv: list[str] | None = None) -> int:
         from cadence.remote.job import run_remote_action
 
         print(run_remote_action(args.action, load_config(args.config), execute=args.execute))
+    elif args.command == "vps":
+        from cadence.operations.vps import (
+            create_metadata_backup,
+            prepare_private_runtime,
+            rehearse_metadata_restore,
+            run_vps_doctor,
+        )
+
+        config = load_config(args.config)
+        if args.vps_command == "prepare":
+            _json(prepare_private_runtime(config, execute=args.execute))
+        elif args.vps_command == "doctor":
+            doctor_report = run_vps_doctor(
+                config,
+                expected_commit=args.expected_commit,
+                repo_root=args.repo_root,
+                require_health=args.require_health,
+            )
+            _json(doctor_report)
+            return 0 if doctor_report["passed"] else 1
+        elif args.vps_command == "backup":
+            _json(
+                create_metadata_backup(
+                    config,
+                    repo_root=args.repo_root,
+                    execute=args.execute,
+                )
+            )
+        elif args.vps_command == "restore-rehearsal":
+            _json(rehearse_metadata_restore(config, args.backup_id))
     elif args.command in {"dataset", "storage"}:
         from cadence.dataset.cli import handle_dataset_command
 
