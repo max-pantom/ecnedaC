@@ -17,6 +17,7 @@
 | Canonical dataset workflow and legacy source migration | Implemented and locally validated |
 | GitHub acceptance CI and GPU dependency verification | Implemented and locally validated |
 | Private VPS exact-release, doctor, and metadata recovery controls | Implemented and locally validated; not remotely executed |
+| Bounded first-run freeze, validation cadence, and abort rules | Implemented and locally validated; launch remains unauthorized |
 
 No component is remotely smoke-tested, trained, evaluated on real data, or production-ready.
 

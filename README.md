@@ -33,6 +33,8 @@ uv run cadence retrieval-eval --synthetic --config configs/test.yaml
 uv run cadence checkpoint-inspect artifacts/checkpoints/latest.pt
 uv run cadence remote-package --config configs/gpu-24gb.yaml
 uv run cadence runpod-action create --config configs/gpu-24gb.yaml
+uv run cadence first-run-freeze --config configs/first-run-v0.1.0.yaml \
+  --dataset-snapshot-handle <opaque-approved-handle>
 ```
 
 Remote scripts are dry-run-first and require both configuration/credentials and `--execute`.
@@ -42,6 +44,10 @@ The current GPU packaging target is one RunPod NVIDIA RTX A5000 24 GB with a 30-
 synthetic-smoke ceiling and a provisional four-hour/$5 first-run ceiling. These are maximum
 templates, not spend authorization. See
 [the RunPod readiness guide](docs/operations/runpod-gpu.md).
+
+The first real run is separately frozen to an exact code/lock/configuration/dataset-handle
+identity. Packaging and validation are local, sanitized, and non-authorizing. See
+[the bounded first-run guide](docs/operations/first-run-freeze.md).
 
 ## Canonical dataset intake
 

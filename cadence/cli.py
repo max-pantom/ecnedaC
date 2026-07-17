@@ -66,6 +66,20 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("--output", default="artifacts/reports/remote-job.json")
     package.add_argument("--allow-dirty", action="store_true")
 
+    first_run_freeze = subparsers.add_parser("first-run-freeze")
+    first_run_freeze.add_argument("--config", required=True)
+    first_run_freeze.add_argument("--dataset-snapshot-handle", required=True)
+    first_run_freeze.add_argument(
+        "--output", default="artifacts/reports/first-run-v0.1.0.json"
+    )
+    first_run_freeze.add_argument("--allow-dirty", action="store_true")
+
+    first_run_validate = subparsers.add_parser("first-run-validate")
+    first_run_validate.add_argument("package")
+    first_run_validate.add_argument("--config", required=True)
+    first_run_validate.add_argument("--dataset-snapshot-handle", required=True)
+    first_run_validate.add_argument("--allow-dirty", action="store_true")
+
     review = subparsers.add_parser("review-serve")
     review.add_argument("--config", default="configs/vps.yaml")
     review.add_argument("--host", default="127.0.0.1")
@@ -204,6 +218,38 @@ def main(argv: list[str] | None = None) -> int:
         job = package_remote_job(config, require_clean=not args.allow_dirty)
         write_remote_job(job, args.output)
         _json({"output": str(Path(args.output).resolve()), "git_commit": job.git_commit})
+    elif args.command == "first-run-freeze":
+        from cadence.training.first_run import freeze_first_run, write_frozen_first_run
+
+        frozen = freeze_first_run(
+            load_config(args.config),
+            args.dataset_snapshot_handle,
+            require_clean=not args.allow_dirty,
+        )
+        write_frozen_first_run(frozen, args.output)
+        _json(
+            {
+                "output": str(Path(args.output).resolve()),
+                "git_commit": frozen.git_commit,
+                "configuration_hash": frozen.configuration_hash,
+                "package_hash": frozen.package_hash,
+                "launch_authorized": False,
+            }
+        )
+    elif args.command == "first-run-validate":
+        from cadence.training.first_run import (
+            read_frozen_first_run,
+            validate_frozen_first_run,
+        )
+
+        _json(
+            validate_frozen_first_run(
+                read_frozen_first_run(args.package),
+                load_config(args.config),
+                args.dataset_snapshot_handle,
+                require_clean=not args.allow_dirty,
+            )
+        )
     elif args.command == "review-serve":
         import uvicorn
 

@@ -112,3 +112,12 @@ def test_runpod_runtime_and_price_must_fit_budget(
 
     with pytest.raises(ValidationError, match="exceed the first-run budget cap"):
         load_config("configs/gpu-24gb.yaml")
+
+
+def test_first_run_final_step_must_include_full_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADENCE_TRAINING__EVALUATION_INTERVAL_STEPS", "16")
+
+    with pytest.raises(ValidationError, match="evaluate at the final optimizer step"):
+        load_config("configs/first-run-v0.1.0.yaml")

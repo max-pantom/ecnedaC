@@ -1,0 +1,92 @@
+runtime:
+  profile: gpu-24gb
+  device: cuda
+  seed: 1337
+  allow_unsafe_local: false
+  max_samples: null
+  epochs: 20
+  num_workers: 4
+  microbatch_size: 32
+  contrastive_group_size: 32
+data:
+  clip_seconds: 4.0
+  num_frames: 16
+  frame_size: 112
+  sample_rate: 16000
+  n_mels: 128
+  n_fft: 1024
+  hop_length: 160
+  split: train
+encoders:
+  video_base_channels: 64
+  audio_base_channels: 96
+  embed_dim: 256
+  projection_dim: 128
+  sequence_length: 8
+training:
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  temperature: 0.07
+  checkpoint_interval_seconds: 600
+  max_steps: 40
+  precision: amp-fp16
+  evaluation_interval_steps: 10
+paths:
+  manifest_path: null
+  checkpoint_dir: artifacts/checkpoints
+  report_dir: artifacts/reports
+  intake_root: data/intake
+dataset_intake:
+  maximum_working_storage_gb: 20.0
+  minimum_free_disk_gb: 15.0
+  unknown_download_reservation_gb: 2.0
+  segment_min_seconds: 4.0
+  segment_max_seconds: 10.0
+  segment_target_seconds: 6.0
+  maximum_suggestions_per_source: 12
+  ffmpeg_binary: ffmpeg
+  ffprobe_binary: ffprobe
+remote:
+  provider: runpod
+  manifest_uri: s3://cadence-placeholder/manifests/train.jsonl
+  checkpoint_uri: s3://cadence-placeholder/checkpoints/
+  requested_hardware: NVIDIA RTX A5000 24GB
+  dependency_group: training-gpu
+  python_version: "3.12"
+  maximum_budget_usd: 5.0
+  maximum_runtime_minutes: 240
+  synthetic_smoke_maximum_budget_usd: 1.0
+  synthetic_smoke_maximum_runtime_minutes: 30
+  maximum_hourly_price_usd: 0.30
+  runpod_gpu_type_id: NVIDIA RTX A5000
+  runpod_gpu_count: 1
+  runpod_cloud_type: COMMUNITY
+  runpod_image_name: pytorch/pytorch:2.11.0-cuda12.6-cudnn9-devel
+  runpod_container_disk_gb: 50
+  runpod_volume_gb: 0
+  runpod_pod_name: cadence-bounded-a5000
+  vps_host: null
+  vast_instance_id: null
+first_run:
+  enabled: true
+  specification_version: 0.1.0
+  expected_train_rows: 83
+  expected_validation_rows: 22
+  expected_test_rows: 0
+  success:
+    required_optimizer_steps: 40
+    require_finite_loss_and_gradients: true
+    require_full_validation_retrieval: true
+    minimum_recall_at_1_over_chance: 1.0
+    require_final_checkpoint: true
+    require_fresh_process_resume: true
+  abort:
+    maximum_oom_events: 0
+    maximum_decoder_errors: 0
+    maximum_checksum_mismatches: 0
+    abort_on_nonfinite_loss_or_gradient: true
+    abort_on_checkpoint_failure: true
+    abort_on_compatibility_mismatch: true
+    soft_stop_runtime_minutes: 210
+    hard_stop_runtime_minutes: 240
+    hard_stop_budget_usd: 5.0
