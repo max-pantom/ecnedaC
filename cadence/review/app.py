@@ -18,7 +18,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from cadence.common.config import CadenceConfig
 from cadence.dataset.downloaders import DirectHTTPDownloader, DownloaderChain, YtDlpDownloader
 from cadence.dataset.media import FFmpegMediaProcessor
-from cadence.dataset.records import ApprovalStatus, RightsStatus
+from cadence.dataset.records import ApprovalStatus, RightsStatus, SourceRecord
 from cadence.dataset.service import GIB, DatasetIntakeService
 from cadence.review.auth import (
     SESSION_COOKIE,
@@ -26,8 +26,11 @@ from cadence.review.auth import (
     AuthenticationError,
     LoginAttemptLimiter,
     ReviewSession,
+    SessionRole,
     SessionSigner,
     TunnelBasicAuth,
+    configured_reviewer_secret,
+    configured_reviewer_session_max_age,
     configured_secret,
     verify_administrator_secret,
     verify_csrf,
@@ -47,9 +50,21 @@ def create_app(
     tunnel_basic_auth: TunnelBasicAuth | None = None,
     allowed_hosts: tuple[str, ...] | None = None,
     login_max_failures: int | None = None,
+    reviewer_secret: str | None = None,
+    reviewer_session_max_age_seconds: int | None = None,
 ) -> FastAPI:
     """Build the private console; callers must bind Uvicorn to loopback by default."""
     administrator_secret = configured_secret(auth_secret)
+    readonly_secret = configured_reviewer_secret(reviewer_secret)
+    readonly_session_max_age = (
+        configured_reviewer_session_max_age(reviewer_session_max_age_seconds)
+        if readonly_secret is not None
+        else 0
+    )
+    if readonly_secret is not None and verify_administrator_secret(
+        readonly_secret, administrator_secret
+    ):
+        raise ValueError("administrator and read-only secrets must be different")
     signer = SessionSigner(administrator_secret)
     intake = service or _build_service(config)
     templates = Jinja2Templates(directory=_DIRECTORY / "templates")
@@ -100,9 +115,7 @@ def create_app(
         return response
 
     @app.exception_handler(StaleRevisionError)
-    async def stale_revision_handler(
-        request: Request, exc: StaleRevisionError
-    ) -> Response:
+    async def stale_revision_handler(request: Request, exc: StaleRevisionError) -> Response:
         payload = {
             "detail": "record changed since this review page was loaded",
             "entity_type": exc.entity_type,
@@ -138,7 +151,11 @@ def create_app(
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
-        return templates.TemplateResponse(request, "login.html", {})
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"readonly_login_enabled": readonly_secret is not None},
+        )
 
     @app.post("/login")
     async def login(request: Request) -> Response:
@@ -153,23 +170,38 @@ def create_app(
         payload = await _request_payload(request)
         supplied_secret = _required_text(payload, "secret")
         actor = _required_text(payload, "actor")
-        if not verify_administrator_secret(supplied_secret, administrator_secret):
+        administrator_login = verify_administrator_secret(supplied_secret, administrator_secret)
+        reviewer_login = readonly_secret is not None and verify_administrator_secret(
+            supplied_secret, readonly_secret
+        )
+        if not administrator_login and not reviewer_login:
             if login_limiter is not None:
                 login_limiter.record_failure()
             return templates.TemplateResponse(
                 request,
                 "login.html",
-                {"error": "Invalid administrator secret."},
+                {
+                    "error": "Invalid access secret.",
+                    "readonly_login_enabled": readonly_secret is not None,
+                },
                 status_code=401,
             )
         if login_limiter is not None:
             login_limiter.reset()
-        token, _ = signer.issue(actor)
+        role: SessionRole = "administrator" if administrator_login else "reviewer"
+        session_lifetime = (
+            SESSION_MAX_AGE_SECONDS if role == "administrator" else readonly_session_max_age
+        )
+        token, session = signer.issue(
+            actor,
+            role=role,
+            max_age_seconds=session_lifetime,
+        )
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
             SESSION_COOKIE,
             token,
-            max_age=SESSION_MAX_AGE_SECONDS,
+            max_age=session.expires_at - session.issued_at,
             httponly=True,
             secure=secure_cookies or request.url.scheme == "https",
             samesite="strict",
@@ -179,7 +211,9 @@ def create_app(
 
     @app.post("/logout")
     async def logout(request: Request) -> Response:
-        session, payload = await _authenticated_mutation(request, signer)
+        session, payload = await _authenticated_mutation(
+            request, signer, require_administrator=False
+        )
         del session, payload
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict")
@@ -190,14 +224,17 @@ def create_app(
         session = _html_session(request, signer)
         if session is None:
             return RedirectResponse("/login", status_code=303)
+        queue = intake.review_queue()
+        if not session.can_mutate:
+            queue = [item for item in queue if item.entity_type == "source"]
         return templates.TemplateResponse(
             request,
             "queue.html",
             {
                 "session": session,
                 "csrf_token": session.csrf_token,
-                "items": intake.review_queue(),
-                "datasets": intake.list_datasets(),
+                "items": queue,
+                "datasets": intake.list_datasets() if session.can_mutate else (),
             },
         )
 
@@ -206,6 +243,7 @@ def create_app(
         session = _html_session(request, signer)
         if session is None:
             return RedirectResponse("/login", status_code=303)
+        _require_administrator(session)
         record = intake.latest_dataset(name)
         return templates.TemplateResponse(
             request,
@@ -228,8 +266,14 @@ def create_app(
             return RedirectResponse("/login", status_code=303)
         try:
             source = intake.registry.get_source(source_id)
-            segments = intake.list_segments(source_id)
-            events = intake.list_audit_events(entity_type="source", entity_id=source_id)
+            if session.can_mutate:
+                segments = intake.list_segments(source_id)
+                events = intake.list_audit_events(entity_type="source", entity_id=source_id)
+                source_view: object = source
+            else:
+                segments = []
+                events = []
+                source_view = _source_metadata(source)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="unknown source") from exc
         return templates.TemplateResponse(
@@ -238,7 +282,7 @@ def create_app(
             {
                 "session": session,
                 "csrf_token": session.csrf_token,
-                "source": source,
+                "source": source_view,
                 "segments": segments,
                 "events": events,
                 "rights_statuses": list(RightsStatus),
@@ -250,6 +294,7 @@ def create_app(
         session = _html_session(request, signer)
         if session is None:
             return RedirectResponse("/login", status_code=303)
+        _require_administrator(session)
         try:
             segment = intake.registry.get_segment(segment_id)
             source = intake.registry.get_source(segment.source_id)
@@ -270,22 +315,25 @@ def create_app(
 
     @app.get("/api/v1/review/queue")
     async def api_review_queue(request: Request) -> JSONResponse:
-        _api_session(request, signer)
-        return _json_response(intake.review_queue())
+        session = _api_session(request, signer)
+        queue = intake.review_queue()
+        if not session.can_mutate:
+            queue = [item for item in queue if item.entity_type == "source"]
+        return _json_response(queue)
 
     @app.get("/api/v1/sources/{source_id}")
     async def api_source(request: Request, source_id: str) -> JSONResponse:
-        _api_session(request, signer)
+        session = _api_session(request, signer)
         try:
             source = intake.registry.get_source(source_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="unknown source") from exc
+        if not session.can_mutate:
+            return _json_response({"source": _source_metadata(source)})
         return _json_response(
             {
                 "source": source,
-                "audit_events": intake.list_audit_events(
-                    entity_type="source", entity_id=source_id
-                ),
+                "audit_events": intake.list_audit_events(entity_type="source", entity_id=source_id),
             }
         )
 
@@ -357,7 +405,7 @@ def create_app(
 
     @app.get("/api/v1/sources/{source_id}/segments")
     async def api_segments(request: Request, source_id: str) -> JSONResponse:
-        _api_session(request, signer)
+        _require_administrator(_api_session(request, signer))
         try:
             segments = intake.list_segments(source_id)
         except (KeyError, ValueError) as exc:
@@ -382,10 +430,8 @@ def create_app(
 
     @app.get("/api/v1/media/{entity_id}")
     async def api_media(request: Request, entity_id: str) -> Response:
-        _api_session(request, signer)
-        path = resolve_registered_media(
-            intake.registry, entity_id, config.paths.intake_root
-        )
+        _require_administrator(_api_session(request, signer))
+        path = resolve_registered_media(intake.registry, entity_id, config.paths.intake_root)
         return media_response(path, request.headers.get("range"))
 
     @app.post("/api/v1/datasets/build")
@@ -440,16 +486,27 @@ def _html_session(request: Request, signer: SessionSigner) -> ReviewSession | No
 
 
 async def _authenticated_mutation(
-    request: Request, signer: SessionSigner
+    request: Request,
+    signer: SessionSigner,
+    *,
+    require_administrator: bool = True,
 ) -> tuple[ReviewSession, dict[str, object]]:
     session = _api_session(request, signer)
+    if require_administrator:
+        _require_administrator(session)
     payload = await _request_payload(request)
-    supplied_csrf = request.headers.get("x-csrf-token") or _optional_text(
-        payload, "csrf_token"
-    )
+    supplied_csrf = request.headers.get("x-csrf-token") or _optional_text(payload, "csrf_token")
     if not verify_csrf(supplied_csrf, session):
         raise HTTPException(status_code=403, detail="invalid CSRF token")
     return session, payload
+
+
+def _require_administrator(session: ReviewSession) -> None:
+    if not session.can_mutate:
+        raise HTTPException(
+            status_code=403,
+            detail="read-only reviewer sessions cannot access this operation",
+        )
 
 
 async def _request_payload(request: Request) -> dict[str, object]:
@@ -539,3 +596,27 @@ def _is_json_request(request: Request) -> bool:
         request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
         == "application/json"
     )
+
+
+def _source_metadata(source: SourceRecord) -> dict[str, object]:
+    """Allowlist source fields safe for a read-only reviewer session."""
+    return {
+        "schema_version": source.schema_version,
+        "source_id": source.source_id,
+        "revision": source.revision,
+        "url": str(source.url),
+        "submitted_by": source.submitted_by,
+        "collection_method": source.collection_method,
+        "submitted_at": source.submitted_at,
+        "title": source.title,
+        "publisher_or_creator": source.publisher_or_creator,
+        "platform": source.platform,
+        "duration_seconds": source.duration_seconds,
+        "content_length_bytes": source.content_length_bytes,
+        "inspection_status": source.inspection_status,
+        "download_status": source.download_status,
+        "rights_status": source.rights_status,
+        "source_approval": source.source_approval,
+        "download_approval": source.download_approval,
+        "eligible_for_training": source.eligible_for_training,
+    }

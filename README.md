@@ -96,6 +96,10 @@ uv run --group operations-ui cadence review-share --config configs/vps.yaml --ex
 uv run --group operations-ui cadence review-share --config configs/vps.yaml --expires 30m --execute
 ```
 
+Executed sharing creates a separate expiring read-only login for source metadata assistance.
+It never emits the administrator secret. Read-only sessions cannot mutate records or access media,
+audit evidence, segments, dataset reports, storage locations, checksums, or license notes.
+
 ## Private VPS release preparation
 
 After the human VPS-access gate is approved, a VPS operator can inspect the exact deployment plan

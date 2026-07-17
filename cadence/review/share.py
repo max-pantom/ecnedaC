@@ -66,6 +66,7 @@ def build_wormkey_share_plan(
             "loopback-only Cadence listener",
             "Cadence-enforced ephemeral outer Basic authentication",
             "forced Secure, HttpOnly, SameSite=Strict session cookie",
+            "ephemeral source-metadata-only reviewer login",
             "administrator login rate limit",
             "maximum two-hour tunnel lifetime",
             "automatic server and tunnel cleanup",
@@ -94,11 +95,15 @@ def execute_wormkey_share(plan: WormkeySharePlan) -> int:
 
     username = "cadence"
     password = secrets.token_urlsafe(24)
+    reviewer_secret = secrets.token_urlsafe(32)
+    reviewer_max_age_seconds = expiry_seconds(plan.expires)
     server_environment = os.environ.copy()
     server_environment.update(
         {
             "CADENCE_REVIEW_TUNNEL_BASIC_USERNAME": username,
             "CADENCE_REVIEW_TUNNEL_BASIC_PASSWORD": password,
+            "CADENCE_REVIEW_READONLY_SECRET": reviewer_secret,
+            "CADENCE_REVIEW_READONLY_MAX_AGE_SECONDS": str(reviewer_max_age_seconds),
         }
     )
     tunnel_environment = {
@@ -175,6 +180,11 @@ def execute_wormkey_share(plan: WormkeySharePlan) -> int:
                             "basic_auth": {
                                 "username": username,
                                 "password": password,
+                            },
+                            "reviewer_login": {
+                                "secret": reviewer_secret,
+                                "role": "reviewer",
+                                "max_age_seconds": reviewer_max_age_seconds,
                             },
                             "cadence_admin_secret": "provisioned-on-vps-and-not-emitted",
                         },
