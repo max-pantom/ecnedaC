@@ -54,6 +54,11 @@ Every source and clip must record:
 The manifest schema remains JSONL and versioned as `0.1.0`. Splits occur by source asset, never by
 derived clip.
 
+The contrastive dataset returns both video and audio timestamps relative to the sampled clip:
+`0.0` is the clip start, regardless of the source-media crop offset. Source-relative crop bounds
+remain available as `start_s` and `end_s` in sample metadata. Masks identify padded or otherwise
+invalid positions on those clip-relative timestamp axes.
+
 ## Pilot target
 
 ```text

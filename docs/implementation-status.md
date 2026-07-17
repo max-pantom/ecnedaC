@@ -13,9 +13,11 @@
 | CPU segment suggestion and dataset assembly | Implemented and locally validated with generated media |
 | Private human review console and audit history | Implemented and locally validated through synthetic dataset build |
 | Guarded temporary Wormkey sharing | Implemented and locally validated without opening a real tunnel |
+| Canonical dataset workflow and legacy source migration | Implemented and locally validated |
+| GitHub acceptance CI and GPU dependency verification | Implemented and locally validated |
 
 No component is remotely smoke-tested, trained, evaluated on real data, or production-ready.
 
-Local acceptance: the repository privacy policy, Ruff, strict Mypy, 105 Pytest cases, synthetic
+Local acceptance: the repository privacy policy, Ruff, strict Mypy, 97 Pytest cases, synthetic
 optimizer/checkpoint recovery, and dry-run remote packaging passed on the Intel Mac control
 environment.

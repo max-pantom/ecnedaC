@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+from uuid import UUID
 
 import av
 
@@ -131,3 +133,58 @@ def test_unverified_source_cannot_enter_dataset(tmp_path: Path) -> None:
     service.set_segment_approval(segments[0].segment_id, ApprovalStatus.APPROVED)
     with __import__("pytest").raises(ValueError, match="no approved segments"):
         service.build_dataset("blocked-pilot")
+
+
+def test_legacy_import_preserves_identity_but_quarantines_decisions(tmp_path: Path) -> None:
+    fixture_manifest = generate_fixtures(tmp_path / "fixtures")
+    fixture = load_manifest(fixture_manifest)[0].path
+    assert fixture is not None
+    service = DatasetIntakeService(
+        workflow_config(tmp_path),
+        downloaders=DownloaderChain([FixtureDownloader(fixture)]),
+        media=FixtureMedia(),
+    )
+    legacy_id = UUID("11111111-1111-1111-1111-111111111111")
+    pilot_dir = tmp_path / "legacy-pilot"
+    pilot_dir.mkdir()
+    (pilot_dir / "sources.jsonl").write_text(
+        json.dumps(
+            {
+                "source_asset_id": str(legacy_id),
+                "source_url": "https://example.com/legacy-launch",
+                "submitted_by": "aven",
+                "collection_method": "legacy-user-submitted-url",
+                "license_status": "licensed",
+                "rights_status": "licensed",
+                "source_state": "approved_source",
+                "eligible_for_training": True,
+                "duration_s": 8.0,
+                "creator": "Example Studio",
+            }
+        )
+        + "\n{malformed}\n",
+        encoding="utf-8",
+    )
+
+    preview = service.import_legacy_pilot(
+        pilot_dir,
+        submitted_by="migration-operator",
+    )
+    assert preview["executed"] is False
+    assert preview["would_add"] == 1
+    assert preview["invalid"] == 1
+    assert service.list_sources() == []
+
+    imported = service.import_legacy_pilot(
+        pilot_dir,
+        submitted_by="migration-operator",
+        execute=True,
+    )
+    assert imported["added"] == 1
+    source = service.registry.get_source(legacy_id)
+    assert source.publisher_or_creator == "Example Studio"
+    assert source.collection_method == "legacy-pilot:legacy-user-submitted-url"
+    assert source.rights_status == RightsStatus.UNVERIFIED
+    assert source.source_approval == ApprovalStatus.PENDING
+    assert source.download_approval == ApprovalStatus.PENDING
+    assert source.eligible_for_training is False

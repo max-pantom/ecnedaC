@@ -15,7 +15,6 @@ ALLOWED_PLACEHOLDERS = frozenset(
         PurePosixPath("data/cache/.gitkeep"),
         PurePosixPath("data/intake/.gitkeep"),
         PurePosixPath("data/manifests/.gitkeep"),
-        PurePosixPath("data/pilots/.gitkeep"),
     }
 )
 

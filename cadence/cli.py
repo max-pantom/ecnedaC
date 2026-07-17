@@ -98,10 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
     remote.add_argument("--config", default="configs/vps.yaml")
     remote.add_argument("--execute", action="store_true")
     from cadence.dataset.cli import add_dataset_parsers
-    from cadence.ingestion.pilot_cli import add_pilot_parsers
 
     add_dataset_parsers(subparsers)
-    add_pilot_parsers(subparsers)
     return parser
 
 
@@ -246,10 +244,6 @@ def main(argv: list[str] | None = None) -> int:
         from cadence.dataset.cli import handle_dataset_command
 
         _json(handle_dataset_command(args))
-    elif args.command == "pilot":
-        from cadence.ingestion.pilot_cli import handle_pilot_command
-
-        _json(handle_pilot_command(args))
     return 0
 
 

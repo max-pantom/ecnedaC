@@ -63,6 +63,16 @@ def add_dataset_parsers(subparsers: argparse._SubParsersAction[argparse.Argument
     build.add_argument("dataset_name")
     report = dataset_commands.add_parser("report")
     report.add_argument("dataset_name")
+    legacy_import = dataset_commands.add_parser(
+        "legacy-import",
+        help="quarantine source records from the retired cadence pilot registry",
+    )
+    legacy_import.add_argument("pilot_dir")
+    legacy_import.add_argument(
+        "--submitted-by",
+        default=os.getenv("USER", "unknown-operator"),
+    )
+    legacy_import.add_argument("--execute", action="store_true")
 
     storage = subparsers.add_parser("storage")
     storage.add_argument("--config", default="configs/vps.yaml")
@@ -142,4 +152,10 @@ def handle_dataset_command(args: argparse.Namespace) -> object:
         return service.build_dataset(args.dataset_name).model_dump(mode="json")
     if args.dataset_command == "report":
         return service.dataset_report(args.dataset_name)
+    if args.dataset_command == "legacy-import":
+        return service.import_legacy_pilot(
+            args.pilot_dir,
+            submitted_by=args.submitted_by,
+            execute=args.execute,
+        )
     raise ValueError("unsupported dataset command")

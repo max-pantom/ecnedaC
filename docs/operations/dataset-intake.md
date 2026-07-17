@@ -7,6 +7,9 @@ segments, manifests, reports, or training artifacts to Git.
 The default VPS intake root is `/srv/cadence/private`; configuration loading rejects a VPS root
 inside the Git checkout.
 
+`cadence dataset` is the sole supported intake workflow. Do not use the retired `cadence pilot`
+command.
+
 ## 1. Submit and inspect
 
 ```bash
@@ -88,3 +91,23 @@ sole mutation authority. Rights classification, source approval, download approv
 eligibility, segment approval, and dataset builds are explicit human actions. Run the console on
 VPS loopback and reach it through an SSH tunnel as described in
 [`review-console.md`](review-console.md).
+
+## One-way legacy source import
+
+If the VPS contains a private registry created by the removed pilot workflow, first preview the
+import:
+
+```bash
+uv run cadence dataset legacy-import /private/path/to/old-pilot
+```
+
+Then execute it explicitly:
+
+```bash
+uv run cadence dataset legacy-import /private/path/to/old-pilot \
+  --submitted-by migration-operator --execute
+```
+
+Only safe source identity and provenance fields are retained. Legacy media stays where it is,
+legacy segments must be suggested again after canonical download/normalization, and all imported
+sources return to unverified, pending, training-ineligible state for review in the console.

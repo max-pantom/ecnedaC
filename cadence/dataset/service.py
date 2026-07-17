@@ -10,6 +10,7 @@ from uuid import UUID
 
 from cadence.common.config import CadenceConfig
 from cadence.dataset.downloaders import DownloaderChain
+from cadence.dataset.legacy import load_legacy_pilot_sources
 from cadence.dataset.media import MediaProcessor
 from cadence.dataset.records import (
     PERMITTED_RIGHTS,
@@ -65,8 +66,18 @@ class DatasetIntakeService:
         self.downloaders = downloaders
         self.media = media
 
-    def add_source(self, url: str, *, submitted_by: str) -> tuple[SourceRecord, bool]:
-        candidate = SourceRecord.from_submission(url, submitted_by)
+    def add_source(
+        self,
+        url: str,
+        *,
+        submitted_by: str,
+        collection_method: str = "user-submitted-url",
+    ) -> tuple[SourceRecord, bool]:
+        candidate = SourceRecord.from_submission(
+            url,
+            submitted_by,
+            collection_method=collection_method,
+        )
         existing = next(
             (
                 source
@@ -83,6 +94,78 @@ class DatasetIntakeService:
 
         self.registry.mutate(add)
         return candidate, True
+
+    def import_legacy_pilot(
+        self,
+        pilot_dir: str | Path,
+        *,
+        submitted_by: str,
+        execute: bool = False,
+    ) -> dict[str, object]:
+        """Import legacy source identities into quarantine; never trust old approvals or media."""
+
+        legacy_sources, invalid_rows = load_legacy_pilot_sources(pilot_dir)
+        added = 0
+        would_add = 0
+        duplicates = 0
+        invalid = invalid_rows
+
+        def import_sources(state: RegistryState) -> None:
+            nonlocal added, duplicates, invalid, would_add
+            existing_urls = {source.canonical_url for source in state.sources.values()}
+            for legacy in legacy_sources:
+                try:
+                    candidate = SourceRecord.from_submission(
+                        legacy.source_url,
+                        f"{legacy.submitted_by} (migrated by {submitted_by})"[:100],
+                        collection_method=(
+                            f"legacy-pilot:{legacy.collection_method}"
+                        )[:100],
+                    )
+                except ValueError:
+                    invalid += 1
+                    continue
+                if (
+                    candidate.canonical_url in existing_urls
+                    or str(legacy.source_asset_id) in state.sources
+                ):
+                    duplicates += 1
+                    continue
+                publisher = legacy.creator or legacy.publisher
+                updates: dict[str, object] = {
+                    "source_id": legacy.source_asset_id,
+                    "publisher_or_creator": publisher,
+                    "license_notes": (
+                        "Imported from the retired pilot registry; rights and approvals "
+                        "must be reviewed again."
+                    ),
+                }
+                if legacy.duration_s > 0:
+                    updates["duration_seconds"] = legacy.duration_s
+                if re.fullmatch(r"[0-9a-f]{64}", legacy.checksum_sha256):
+                    updates["checksum_sha256"] = legacy.checksum_sha256
+                candidate = candidate.model_copy(update=updates)
+                existing_urls.add(candidate.canonical_url)
+                if execute:
+                    state.sources[str(candidate.source_id)] = candidate
+                    added += 1
+                else:
+                    would_add += 1
+
+        if execute:
+            self.registry.mutate(import_sources)
+        else:
+            import_sources(self.registry.load())
+        return {
+            "executed": execute,
+            "discovered": len(legacy_sources),
+            "added": added,
+            "would_add": would_add,
+            "duplicates": duplicates,
+            "invalid": invalid,
+            "rights_status": RightsStatus.UNVERIFIED.value,
+            "eligible_for_training": False,
+        }
 
     def add_batch(self, path: str | Path, *, submitted_by: str) -> dict[str, int]:
         added = duplicates = invalid = 0
@@ -650,7 +733,7 @@ class DatasetIntakeService:
                         "checksum_sha256": segment.checksum_after_extraction,
                         "source_url": source.url,
                         "license_status": source.rights_status.value,
-                        "collection_method": source.download_method or "unknown",
+                        "collection_method": source.collection_method,
                         "split": split,
                         "eligible_for_contrastive": True,
                         "domain": "product-and-brand-launch-video-sound-design",

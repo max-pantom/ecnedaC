@@ -21,6 +21,9 @@ def test_generated_fixture_decodes_to_aligned_masked_batch(tmp_path: Path) -> No
     assert first.video.shape == (3, 4, 32, 32)
     assert first.audio.shape[0:2] == (1, 16)
     assert first.video_timestamps[0] == pytest.approx(0.0, abs=0.15)
+    assert first.audio_timestamps[0] == pytest.approx(0.0)
+    assert first.video_timestamps[-1] < config.data.clip_seconds
+    assert first.audio_timestamps[-1] <= config.data.clip_seconds
     assert torch.isfinite(first.audio).all()
     batch = collate_contrastive([first])
     assert batch.video.frames.shape == (1, 3, 4, 32, 32)
@@ -47,4 +50,3 @@ def test_ineligible_missing_audio_is_rejected(tmp_path: Path) -> None:
     write_manifest([entries[3]], missing_audio_manifest)
     with pytest.raises(ValueError, match="not eligible"):
         ContrastiveClipDataset(missing_audio_manifest, load_config("configs/test.yaml").data)
-

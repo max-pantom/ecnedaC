@@ -37,7 +37,7 @@ uv run cadence remote-package --config configs/gpu-24gb.yaml
 Remote scripts are dry-run-first and require both configuration/credentials and `--execute`.
 No remote action is performed as part of local acceptance.
 
-## Dataset intake pilot
+## Canonical dataset intake
 
 Candidate URLs are persisted before any download. Unknown sources default to unverified and cannot
 enter a training manifest. A typical safe flow is:
@@ -96,36 +96,18 @@ uv run --group operations-ui cadence review-share --config configs/vps.yaml --ex
 uv run --group operations-ui cadence review-share --config configs/vps.yaml --expires 30m --execute
 ```
 
-## Launch-video research workflow
+## Retired pilot registry migration
 
-This branch also retains the earlier file-oriented launch-video pilot. Its commands live under
-`cadence pilot` so they do not conflict with the audited intake workflow above. The pilot supports
-batch candidate capture and direct registration of a local, lawfully obtained media file:
-
-```bash
-uv run cadence pilot source add \
-  https://example.com/a https://example.com/b \
-  --submitted-by max
-
-uv run cadence pilot source add \
-  --media-path /path/to/source.mp4 \
-  --source-url https://example.com/launch-video \
-  --creator "Example Studio" \
-  --collection-method user-submitted-local-file \
-  --license-status synthetic-generated
-```
-
-The remaining research flow is:
+`cadence dataset` is the only dataset workflow. The old `cadence pilot` command and its separate
+file-oriented implementation have been removed. If a private VPS still has a legacy
+`sources.jsonl`, preview and then execute a one-way import:
 
 ```bash
-uv run cadence pilot source inspect --source all
-uv run cadence pilot source approve --source <source-asset-id>
-uv run cadence pilot segments suggest --source all --min-duration 4 --max-duration 10
-uv run cadence pilot segments approve --clip <clip-asset-id>
-uv run cadence pilot build pilot-launch-v0
-uv run cadence pilot report pilot-launch-v0
+uv run cadence dataset legacy-import /private/path/to/old-pilot
+uv run cadence dataset legacy-import /private/path/to/old-pilot \
+  --submitted-by migration-operator --execute
 ```
 
-`pilot source download` requires `yt-dlp` and only downloads approved sources. Downloading never
-grants training eligibility; unverified rights remain excluded. The VPS is a lightweight dataset
-coordination and preprocessing host, not a GPU training machine.
+The import preserves source identities, URLs, submitter attribution, collection method, creator,
+duration, and valid checksums where available. It never copies media or trusts legacy approval and
+rights fields: every imported source is unverified, pending review, and training-ineligible.

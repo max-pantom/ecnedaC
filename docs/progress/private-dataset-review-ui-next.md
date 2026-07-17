@@ -16,7 +16,7 @@ validated in dry-run and simulated-process tests; no real Wormkey tunnel was ope
 `main` is the canonical base. It contains:
 
 - `cadence dataset ...` as the guarded intake workflow;
-- `cadence pilot ...` as a compatibility workflow;
+- one canonical `DatasetIntakeService` registry shared by CLI and review UI;
 - atomic registry persistence, storage preflight checks, download/normalization adapters, CPU segment
   suggestions, explicit approvals, versioned manifests, and synthetic acceptance tests;
 - no real training, public service, or remotely executed job.
@@ -49,6 +49,10 @@ Before UI implementation:
 3. Real source queues, audit events, previews, manifests, and reports must remain VPS-private.
 4. The existing real pilot record must be removed from the current tree. Rewriting published Git
    history requires separate explicit approval.
+
+The later canonical-workflow cleanup removed the compatibility CLI and implementation. A guarded
+one-way `cadence dataset legacy-import` command preserves private legacy source identities while
+forcing rights and approval re-review.
 
 ## Proposed architecture
 
