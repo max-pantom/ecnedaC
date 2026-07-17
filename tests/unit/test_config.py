@@ -46,5 +46,19 @@ def test_unknown_configuration_field_fails(monkeypatch: pytest.MonkeyPatch) -> N
 def test_vps_dataset_limits_are_hard_defaults() -> None:
     config = load_config("configs/vps.yaml")
     assert config.runtime.num_workers == 1
+    assert config.paths.intake_root == Path("/srv/cadence/private")
     assert config.dataset_intake.maximum_working_storage_gb == 20.0
     assert config.dataset_intake.minimum_free_disk_gb == 15.0
+
+
+def test_vps_intake_root_inside_repository_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADENCE_PATHS__INTAKE_ROOT", "data/intake")
+    with pytest.raises(ValueError, match="VPS intake_root must be outside the Git worktree"):
+        load_config("configs/vps.yaml")
+
+
+def test_test_profile_may_use_synthetic_intake_root_inside_repository() -> None:
+    config = load_config("configs/test.yaml")
+    assert config.paths.intake_root == Path("data/intake").resolve()

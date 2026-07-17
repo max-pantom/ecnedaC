@@ -60,6 +60,21 @@ uv run cadence storage report
 See [the dataset-intake operations guide](docs/operations/dataset-intake.md) for the full safe
 workflow and recovery procedures.
 
+## Private data boundary
+
+Git contains code, schemas, documentation, and synthetic-fixture generators only. Real source
+media, extracted clips, operator registries, source queues, manifests, dataset reports, and
+training artifacts stay on the VPS or in explicitly configured private object storage.
+
+Run the repository guard before committing:
+
+```bash
+uv run cadence data-policy check
+make data-policy
+```
+
+See [the private-data operations policy](docs/operations/private-data-boundary.md).
+
 ## Launch-video research workflow
 
 This branch also retains the earlier file-oriented launch-video pilot. Its commands live under
