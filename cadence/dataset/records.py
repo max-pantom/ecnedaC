@@ -102,6 +102,7 @@ class SourceRecord(BaseModel):
     url: AnyHttpUrl
     canonical_url: str
     submitted_by: str = Field(min_length=1, max_length=100)
+    collection_method: str = Field(default="user-submitted-url", min_length=1, max_length=100)
     submitted_at: datetime = Field(default_factory=utc_now)
     title: str | None = None
     publisher_or_creator: str | None = None
@@ -133,10 +134,21 @@ class SourceRecord(BaseModel):
         return self
 
     @classmethod
-    def from_submission(cls, url: str, submitted_by: str) -> SourceRecord:
+    def from_submission(
+        cls,
+        url: str,
+        submitted_by: str,
+        *,
+        collection_method: str = "user-submitted-url",
+    ) -> SourceRecord:
         canonical = canonicalize_url(url)
         return cls.model_validate(
-            {"url": canonical, "canonical_url": canonical, "submitted_by": submitted_by}
+            {
+                "url": canonical,
+                "canonical_url": canonical,
+                "submitted_by": submitted_by,
+                "collection_method": collection_method,
+            }
         )
 
 

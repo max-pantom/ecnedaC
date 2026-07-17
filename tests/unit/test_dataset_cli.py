@@ -1,3 +1,5 @@
+import pytest
+
 from cadence.cli import build_parser
 
 
@@ -17,7 +19,13 @@ def test_required_dataset_cli_shapes_parse() -> None:
         ["dataset", "segment", "reject", "00000000-0000-0000-0000-000000000000"],
         ["dataset", "build", "launch-pilot"],
         ["dataset", "report", "launch-pilot"],
+        ["dataset", "legacy-import", "/srv/cadence/legacy-pilot"],
         ["storage", "report"],
     ]
     for command in commands:
         assert parser.parse_args(command).command in {"dataset", "storage"}
+
+
+def test_removed_pilot_workflow_is_not_exposed() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["pilot", "source", "inspect"])

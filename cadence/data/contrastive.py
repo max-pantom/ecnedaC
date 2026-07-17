@@ -197,7 +197,7 @@ class ContrastiveClipDataset(Dataset[ContrastiveSample]):
         return video, target_timestamps, mask
 
     def _process_audio(
-        self, waveform: Tensor, native_rate: int, start: float
+        self, waveform: Tensor, native_rate: int
     ) -> tuple[Tensor, Tensor, Tensor]:
         if native_rate != self.config.sample_rate:
             waveform = torchaudio.functional.resample(
@@ -218,7 +218,7 @@ class ContrastiveClipDataset(Dataset[ContrastiveSample]):
             / self.config.sample_rate
         )
         mask = timestamps < (valid_samples / self.config.sample_rate)
-        return mel, timestamps + (start - start), mask
+        return mel, timestamps, mask
 
     def __getitem__(self, index: int) -> ContrastiveSample:
         entry = self.entries[index]
@@ -231,7 +231,7 @@ class ContrastiveClipDataset(Dataset[ContrastiveSample]):
         video, video_timestamps, video_mask = self._process_video(
             frames, frame_timestamps, start, valid_duration
         )
-        audio, audio_timestamps, audio_mask = self._process_audio(waveform, native_rate, start)
+        audio, audio_timestamps, audio_mask = self._process_audio(waveform, native_rate)
         return ContrastiveSample(
             video,
             video_timestamps,

@@ -22,7 +22,6 @@ data/cache/*
 data/intake/*
 !data/intake/.gitkeep
 data/pilots/*
-!data/pilots/.gitkeep
 artifacts/checkpoints/*
 !artifacts/checkpoints/.gitkeep
 artifacts/reports/*

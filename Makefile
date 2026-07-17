@@ -1,4 +1,4 @@
-.PHONY: setup setup-review test lint typecheck data-policy accept
+.PHONY: setup setup-review test lint typecheck data-policy gpu-deps-check accept
 
 setup:
 	uv sync
@@ -17,6 +17,10 @@ typecheck:
 
 data-policy:
 	uv run cadence data-policy check
+
+gpu-deps-check:
+	uv lock --check
+	python3 scripts/verify_gpu_dependencies.py
 
 accept: data-policy lint typecheck test
 	uv run cadence train-synthetic --config configs/test.yaml --checkpoint artifacts/checkpoints/acceptance.pt
