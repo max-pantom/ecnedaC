@@ -9,7 +9,9 @@ def test_gpu_operations_runbook_covers_every_required_gate() -> None:
     required = (
         "Human gate",
         "Aven — remote operation",
-        "immutable private object-storage prefix",
+        "outbound SSH/SCP",
+        "15 GB free",
+        "four rotating checkpoints plus the final checkpoint",
         "Runtime-only secret lifecycle",
         "integrity verification",
         "Checkpoints and clean stopping",
@@ -18,7 +20,7 @@ def test_gpu_operations_runbook_covers_every_required_gate() -> None:
         "Verified termination and cleanup",
         "Incident evidence boundary",
         "Dataset contents never come",
-        "No private staging prefix",
+        "No credential, RunPod Pod, transfer, spend",
     )
     for phrase in required:
         assert phrase.lower() in text.lower()

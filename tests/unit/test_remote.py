@@ -1,10 +1,22 @@
+from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
 
 from cadence.common.config import load_config
-from cadence.remote.job import RemoteJob, remote_command, run_remote_action
+from cadence.remote.job import (
+    RemoteJob,
+    package_remote_job,
+    remote_command,
+    run_remote_action,
+)
 from cadence.remote.runpod import build_runpod_plan, execute_runpod_plan
+from cadence.remote.vps_transport import (
+    CHECKPOINT_KEY_ENV,
+    DATASET_KEY_ENV,
+    build_vps_transfer_plan,
+    execute_vps_transfer_plan,
+)
 
 
 def test_remote_job_rejects_non_commit() -> None:
@@ -17,8 +29,10 @@ def test_remote_job_rejects_non_commit() -> None:
         "dependency_lock_hash": "a" * 64,
         "configuration_hash": "b" * 64,
         "configuration": {},
-        "dataset_manifest_uri": "s3://bucket/manifest",
-        "checkpoint_destination": "s3://bucket/checkpoint",
+        "artifact_transport": "vps-ssh",
+        "dataset_snapshot_handle": "cadence-test-snapshot",
+        "checkpoint_run_handle": "cadence-test-run",
+        "checkpoint_retention_count": 4,
         "random_seed": 1,
         "requested_hardware": "NVIDIA RTX A5000 24GB",
         "maximum_budget_usd": 1,
@@ -30,6 +44,28 @@ def test_remote_job_rejects_non_commit() -> None:
     }
     with pytest.raises(ValueError):
         RemoteJob.model_validate(values)
+
+
+def test_remote_job_package_omits_private_and_runtime_locators() -> None:
+    job = package_remote_job(
+        load_config("configs/gpu-24gb.yaml"),
+        require_clean=False,
+    )
+    encoded = job.model_dump_json().lower()
+
+    assert job.artifact_transport == "vps-ssh"
+    assert job.checkpoint_retention_count == 4
+    for forbidden in (
+        "s3://",
+        "manifest_uri",
+        "checkpoint_uri",
+        "vps_host",
+        "vast_instance_id",
+        "intake_root",
+        "manifest_path",
+        "cadence_gpu_vps_host",
+    ):
+        assert forbidden not in encoded
 
 
 def test_every_remote_action_is_dry_by_default() -> None:
@@ -50,6 +86,13 @@ def test_legacy_vast_termination_cannot_target_runpod() -> None:
 def test_execute_requires_configuration() -> None:
     with pytest.raises(ValueError, match="missing"):
         run_remote_action("bootstrap_vps", load_config("configs/vps.yaml"), execute=True)
+
+
+def test_legacy_storage_actions_cannot_execute() -> None:
+    config = load_config("configs/vps.yaml")
+    for action in ("sync_checkpoints", "fetch_results"):
+        with pytest.raises(ValueError, match="gpu-transfer"):
+            run_remote_action(action, config, execute=True)
 
 
 def test_runpod_create_plan_is_bounded_and_public_safe() -> None:
@@ -73,6 +116,205 @@ def test_runpod_create_plan_is_bounded_and_public_safe() -> None:
     assert "manifest_uri" not in encoded
     assert "checkpoint_uri" not in encoded
     assert any("billable volume storage" in warning for warning in plan.warnings)
+
+
+def test_vps_transfer_plans_are_sanitized_and_use_separate_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CADENCE_GPU_VPS_HOST", "private.example.invalid")
+    monkeypatch.setenv(DATASET_KEY_ENV, "/private/dataset-key")
+    monkeypatch.setenv(CHECKPOINT_KEY_ENV, "/private/checkpoint-key")
+
+    dataset = build_vps_transfer_plan(
+        "dataset-pull",
+        dataset_snapshot_handle="cad15-manifest-47924d80b058",
+    )
+    checkpoint = build_vps_transfer_plan(
+        "checkpoint-push",
+        run_handle="cadence-first-run-v0-1-0",
+        artifact_name="step-000010.pt",
+    )
+    encoded = f"{dataset.to_dict()} {checkpoint.to_dict()}".lower()
+
+    assert dataset.credential_role == "dataset-read"
+    assert DATASET_KEY_ENV in dataset.runtime_environment_variables
+    assert CHECKPOINT_KEY_ENV not in dataset.runtime_environment_variables
+    assert checkpoint.credential_role == "checkpoint-read-write"
+    assert CHECKPOINT_KEY_ENV in checkpoint.runtime_environment_variables
+    assert DATASET_KEY_ENV not in checkpoint.runtime_environment_variables
+    assert "private.example.invalid" not in encoded
+    assert "/private/" not in encoded
+
+
+def test_vps_transfer_dry_run_reads_no_credentials_or_network(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fail_environment(name: str, default: str = "") -> str:
+        del name, default
+        raise AssertionError("dry run read runtime environment")
+
+    def fail_subprocess(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("dry run contacted the network")
+
+    monkeypatch.setattr("cadence.remote.vps_transport.os.getenv", fail_environment)
+    monkeypatch.setattr("cadence.remote.vps_transport.subprocess.run", fail_subprocess)
+    plan = build_vps_transfer_plan(
+        "dataset-pull",
+        dataset_snapshot_handle="cad15-manifest-47924d80b058",
+    )
+
+    result = execute_vps_transfer_plan(
+        plan,
+        local_path=tmp_path / "dataset.tar.zst",
+        execute=False,
+    )
+
+    assert result["network_action"] is False
+    assert result["credentials_read"] is False
+
+
+@pytest.mark.parametrize(
+    ("action", "kwargs"),
+    [
+        ("dataset-pull", {"dataset_snapshot_handle": "../../private"}),
+        (
+            "checkpoint-push",
+            {"run_handle": "cadence-valid-run", "artifact_name": "../checkpoint.pt"},
+        ),
+        (
+            "report-pull",
+            {"run_handle": "cadence-valid-run", "artifact_name": "report.txt"},
+        ),
+    ],
+)
+def test_vps_transfer_rejects_traversal_and_wrong_artifact_types(
+    action: str,
+    kwargs: dict[str, str],
+) -> None:
+    with pytest.raises(ValueError):
+        build_vps_transfer_plan(action, **kwargs)  # type: ignore[arg-type]
+
+
+def test_vps_transfer_execution_requires_human_approval(tmp_path: Path) -> None:
+    plan = build_vps_transfer_plan(
+        "checkpoint-push",
+        run_handle="cadence-first-run-v0-1-0",
+        artifact_name="step-000010.pt",
+    )
+
+    with pytest.raises(ValueError, match="approval"):
+        execute_vps_transfer_plan(
+            plan,
+            local_path=tmp_path / "step-000010.pt",
+            execute=True,
+        )
+
+
+def test_vps_transfer_execution_rejects_missing_runtime_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in (
+        "CADENCE_GPU_VPS_HOST",
+        "CADENCE_GPU_VPS_PORT",
+        "CADENCE_GPU_VPS_USER",
+        "CADENCE_GPU_VPS_KNOWN_HOSTS_FILE",
+        CHECKPOINT_KEY_ENV,
+    ):
+        monkeypatch.delenv(name, raising=False)
+    checkpoint = tmp_path / "step-000010.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    plan = build_vps_transfer_plan(
+        "checkpoint-push",
+        run_handle="cadence-first-run-v0-1-0",
+        artifact_name=checkpoint.name,
+    )
+
+    with pytest.raises(ValueError, match="missing VPS transfer runtime"):
+        execute_vps_transfer_plan(
+            plan,
+            local_path=checkpoint,
+            execute=True,
+            approval_reference="cad35-test-approval",
+        )
+
+
+def test_vps_checkpoint_upload_is_strict_atomic_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("host key\n", encoding="utf-8")
+    key = tmp_path / "checkpoint_key"
+    key.write_text("private key\n", encoding="utf-8")
+    key.chmod(0o600)
+    checkpoint = tmp_path / "step-000010.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    monkeypatch.setenv("CADENCE_GPU_VPS_HOST", "vps.example.invalid")
+    monkeypatch.setenv("CADENCE_GPU_VPS_PORT", "22")
+    monkeypatch.setenv("CADENCE_GPU_VPS_USER", "cadence_checkpoint")
+    monkeypatch.setenv("CADENCE_GPU_VPS_KNOWN_HOSTS_FILE", str(known_hosts))
+    monkeypatch.setenv(CHECKPOINT_KEY_ENV, str(key))
+    commands: list[list[str]] = []
+
+    def record(command: list[str], *, check: bool) -> object:
+        assert check is True
+        commands.append(command)
+        return object()
+
+    monkeypatch.setattr("cadence.remote.vps_transport.subprocess.run", record)
+    plan = build_vps_transfer_plan(
+        "checkpoint-push",
+        run_handle="cadence-first-run-v0-1-0",
+        artifact_name=checkpoint.name,
+    )
+
+    result = execute_vps_transfer_plan(
+        plan,
+        local_path=checkpoint,
+        execute=True,
+        approval_reference="cad35-test-approval",
+    )
+    encoded_commands = " ".join(part for command in commands for part in command)
+    encoded_result = str(result)
+
+    assert [command[0] for command in commands] == ["scp", "ssh"]
+    assert "StrictHostKeyChecking=yes" in encoded_commands
+    assert "step-000010.pt.partial" in encoded_commands
+    assert "commit-upload" in encoded_commands
+    assert result["network_action"] is True
+    assert "vps.example.invalid" not in encoded_result
+    assert str(key) not in encoded_result
+
+
+def test_vps_transfer_rejects_overexposed_ssh_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("host key\n", encoding="utf-8")
+    key = tmp_path / "dataset_key"
+    key.write_text("private key\n", encoding="utf-8")
+    key.chmod(0o644)
+    monkeypatch.setenv("CADENCE_GPU_VPS_HOST", "vps.example.invalid")
+    monkeypatch.setenv("CADENCE_GPU_VPS_PORT", "22")
+    monkeypatch.setenv("CADENCE_GPU_VPS_USER", "cadence_dataset")
+    monkeypatch.setenv("CADENCE_GPU_VPS_KNOWN_HOSTS_FILE", str(known_hosts))
+    monkeypatch.setenv(DATASET_KEY_ENV, str(key))
+    plan = build_vps_transfer_plan(
+        "dataset-pull",
+        dataset_snapshot_handle="cad15-manifest-47924d80b058",
+    )
+
+    with pytest.raises(ValueError, match="group or other"):
+        execute_vps_transfer_plan(
+            plan,
+            local_path=tmp_path / "dataset.tar.zst",
+            execute=True,
+            approval_reference="cad35-test-approval",
+        )
 
 
 def test_every_runpod_action_is_dry_without_credentials_or_network(

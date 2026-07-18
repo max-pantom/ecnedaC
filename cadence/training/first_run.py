@@ -41,6 +41,10 @@ def bounded_first_run_snapshot(config: CadenceConfig) -> dict[str, Any]:
         "training": config.training.model_dump(mode="json"),
         "remote": {
             "provider": config.remote.provider,
+            "artifact_transport": config.remote.artifact_transport,
+            "dataset_snapshot_handle": config.remote.dataset_snapshot_handle,
+            "checkpoint_run_handle": config.remote.checkpoint_run_handle,
+            "checkpoint_retention_count": config.remote.checkpoint_retention_count,
             "requested_hardware": config.remote.requested_hardware,
             "dependency_group": config.remote.dependency_group,
             "python_version": config.remote.python_version,
