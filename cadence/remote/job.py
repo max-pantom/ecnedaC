@@ -20,7 +20,7 @@ from cadence.common.repro import git_commit, stable_hash
 class RemoteJob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["0.2.0"] = "0.2.0"
+    schema_version: Literal["0.3.0"] = "0.3.0"
     provider: Literal["runpod", "vast"]
     git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
     python_version: Literal["3.12"]
@@ -29,8 +29,10 @@ class RemoteJob(BaseModel):
     dependency_lock_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     configuration_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     configuration: dict[str, Any]
-    dataset_manifest_uri: str
-    checkpoint_destination: str
+    artifact_transport: Literal["vps-ssh"]
+    dataset_snapshot_handle: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{7,127}$")
+    checkpoint_run_handle: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{7,127}$")
+    checkpoint_retention_count: int = Field(ge=1, le=4)
     random_seed: int
     requested_hardware: str
     maximum_budget_usd: float = Field(gt=0)
@@ -43,6 +45,31 @@ class RemoteJob(BaseModel):
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _public_job_configuration(config: CadenceConfig) -> dict[str, Any]:
+    """Serialize training controls without private or runtime-only locators."""
+
+    return {
+        "runtime": config.runtime.model_dump(mode="json"),
+        "data": config.data.model_dump(mode="json"),
+        "encoders": config.encoders.model_dump(mode="json"),
+        "training": config.training.model_dump(mode="json"),
+        "remote": {
+            "provider": config.remote.provider,
+            "artifact_transport": config.remote.artifact_transport,
+            "dataset_snapshot_handle": config.remote.dataset_snapshot_handle,
+            "checkpoint_run_handle": config.remote.checkpoint_run_handle,
+            "checkpoint_retention_count": config.remote.checkpoint_retention_count,
+            "requested_hardware": config.remote.requested_hardware,
+            "dependency_group": config.remote.dependency_group,
+            "python_version": config.remote.python_version,
+            "maximum_budget_usd": config.remote.maximum_budget_usd,
+            "maximum_runtime_minutes": config.remote.maximum_runtime_minutes,
+            "maximum_hourly_price_usd": config.remote.maximum_hourly_price_usd,
+        },
+        "first_run": config.first_run.model_dump(mode="json"),
+    }
 
 
 def package_remote_job(
@@ -61,7 +88,7 @@ def package_remote_job(
     lock = root / "uv.lock"
     if not lock.is_file():
         raise ValueError("uv.lock is required for remote jobs")
-    configuration = config.model_dump(mode="json")
+    configuration = _public_job_configuration(config)
     if config.remote.python_version != "3.12":
         raise ValueError("GPU remote jobs require Python 3.12")
     return RemoteJob(
@@ -73,8 +100,10 @@ def package_remote_job(
         dependency_lock_hash=_sha256(lock),
         configuration_hash=stable_hash(configuration),
         configuration=configuration,
-        dataset_manifest_uri=config.remote.manifest_uri,
-        checkpoint_destination=config.remote.checkpoint_uri,
+        artifact_transport=config.remote.artifact_transport,
+        dataset_snapshot_handle=config.remote.dataset_snapshot_handle,
+        checkpoint_run_handle=config.remote.checkpoint_run_handle,
+        checkpoint_retention_count=config.remote.checkpoint_retention_count,
         random_seed=config.runtime.seed,
         requested_hardware=config.remote.requested_hardware,
         maximum_budget_usd=config.remote.maximum_budget_usd,
@@ -106,9 +135,25 @@ def remote_command(action: str, config: CadenceConfig) -> list[str]:
             "cadence train-contrastive --config configs/gpu-24gb.yaml",
         ],
         "sync_checkpoints": [
-            "aws", "s3", "sync", config.remote.checkpoint_uri, "artifacts/checkpoints"
+            "cadence",
+            "gpu-transfer",
+            "checkpoint-push",
+            "--run-handle",
+            config.remote.checkpoint_run_handle,
+            "--local-path",
+            "<checkpoint-path>",
         ],
-        "fetch_results": ["aws", "s3", "sync", config.remote.checkpoint_uri, "artifacts/reports"],
+        "fetch_results": [
+            "cadence",
+            "gpu-transfer",
+            "report-pull",
+            "--run-handle",
+            config.remote.checkpoint_run_handle,
+            "--artifact-name",
+            "final-report.json",
+            "--local-path",
+            "artifacts/reports/final-report.json",
+        ],
         "terminate_gpu": ["vastai", "destroy", "instance", instance or "<missing-instance-id>"],
     }
     if action not in commands:
@@ -121,6 +166,11 @@ def run_remote_action(action: str, config: CadenceConfig, *, execute: bool) -> s
     rendered = shlex.join(command)
     if not execute:
         return f"DRY RUN: {rendered}"
+    if action in {"sync_checkpoints", "fetch_results"}:
+        raise ValueError(
+            "legacy storage actions cannot execute; use cadence gpu-transfer with "
+            "an explicit approval reference"
+        )
     if any(part.startswith("<missing-") for part in command):
         raise ValueError("remote action is missing required host or instance configuration")
     if action == "terminate_gpu" and not os.getenv("VAST_API_KEY"):

@@ -120,6 +120,24 @@ def build_parser() -> argparse.ArgumentParser:
     runpod.add_argument("--approval-reference")
     runpod.add_argument("--confirm-termination", action="store_true")
 
+    gpu_transfer = subparsers.add_parser("gpu-transfer")
+    gpu_transfer.add_argument(
+        "action",
+        choices=[
+            "dataset-pull",
+            "checkpoint-push",
+            "checkpoint-pull",
+            "report-push",
+            "report-pull",
+        ],
+    )
+    gpu_transfer.add_argument("--dataset-snapshot-handle")
+    gpu_transfer.add_argument("--run-handle")
+    gpu_transfer.add_argument("--artifact-name")
+    gpu_transfer.add_argument("--local-path", required=True)
+    gpu_transfer.add_argument("--execute", action="store_true")
+    gpu_transfer.add_argument("--approval-reference")
+
     vps = subparsers.add_parser("vps")
     vps.add_argument("--config", default="configs/vps.yaml")
     vps_commands = vps.add_subparsers(dest="vps_command", required=True)
@@ -323,6 +341,29 @@ def main(argv: list[str] | None = None) -> int:
                 execute=args.execute,
                 approval_reference=args.approval_reference,
                 confirm_termination=args.confirm_termination,
+            )
+        )
+    elif args.command == "gpu-transfer":
+        from cadence.remote.vps_transport import (
+            build_vps_transfer_plan,
+            execute_vps_transfer_plan,
+        )
+
+        artifact_name = args.artifact_name
+        if artifact_name is None and args.action.endswith("-push"):
+            artifact_name = Path(args.local_path).name
+        transfer_plan = build_vps_transfer_plan(
+            args.action,
+            dataset_snapshot_handle=args.dataset_snapshot_handle,
+            run_handle=args.run_handle,
+            artifact_name=artifact_name,
+        )
+        _json(
+            execute_vps_transfer_plan(
+                transfer_plan,
+                local_path=args.local_path,
+                execute=args.execute,
+                approval_reference=args.approval_reference,
             )
         )
     elif args.command == "vps":

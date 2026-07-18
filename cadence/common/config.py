@@ -121,8 +121,16 @@ class DatasetIntakeConfig(StrictModel):
 
 class RemoteConfig(StrictModel):
     provider: Literal["runpod", "vast"] = "runpod"
-    manifest_uri: str = "s3://cadence-placeholder/manifests/train.jsonl"
-    checkpoint_uri: str = "s3://cadence-placeholder/checkpoints/"
+    artifact_transport: Literal["vps-ssh"] = "vps-ssh"
+    dataset_snapshot_handle: str = Field(
+        default="cadence-private-snapshot",
+        pattern=r"^[a-z0-9][a-z0-9-]{7,127}$",
+    )
+    checkpoint_run_handle: str = Field(
+        default="cadence-first-run",
+        pattern=r"^[a-z0-9][a-z0-9-]{7,127}$",
+    )
+    checkpoint_retention_count: int = Field(default=4, ge=1, le=4)
     requested_hardware: str = "NVIDIA RTX A5000 24GB"
     dependency_group: Literal["training-gpu"] = "training-gpu"
     python_version: str = "3.12"

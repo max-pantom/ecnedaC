@@ -48,8 +48,10 @@ dataset_intake:
   ffprobe_binary: ffprobe
 remote:
   provider: runpod
-  manifest_uri: s3://cadence-placeholder/manifests/train.jsonl
-  checkpoint_uri: s3://cadence-placeholder/checkpoints/
+  artifact_transport: vps-ssh
+  dataset_snapshot_handle: cad15-manifest-47924d80b058
+  checkpoint_run_handle: cadence-first-run-v0-1-0
+  checkpoint_retention_count: 4
   requested_hardware: NVIDIA RTX A5000 24GB
   dependency_group: training-gpu
   python_version: "3.12"

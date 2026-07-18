@@ -1,6 +1,6 @@
 # Private GPU transfer and recovery runbook
 
-This runbook is the public-safe CAD-24 procedure for a future RunPod A5000 operation. It defines
+This runbook is the public-safe CAD-24/CAD-35 procedure for a future RunPod A5000 operation. It defines
 the order of work and the evidence required at each boundary. It contains no private endpoint,
 credential, signed link, manifest content, filesystem location, Pod identifier, or launch
 authorization.
@@ -40,7 +40,7 @@ from Git.
    four-hour maximum, a `$2` total ceiling, zero persistent volume by default, the operator
    window, and the termination owner.
 4. **Human gate:** choose a non-Linear, non-Git secret-delivery channel and approve the exact
-   private-storage scopes. The synthetic smoke remains synthetic-only.
+   VPS SSH identities. The synthetic smoke remains synthetic-only.
 5. **Aven — remote operation:** dry-run search/create/inspect/terminate plans and compare their
    hashes and bounds with the approval. Do not create a Pod during preflight.
 
@@ -50,36 +50,77 @@ and human decision.
 
 ## Phase 1 — private staging
 
-The default transfer pattern is a temporary immutable private object-storage prefix. It avoids
-putting dataset bytes in Git, Linear, the RunPod create request, provider environment fields, or a
-public inbound service. A direct VPS-to-GPU copy is not the default and requires a separate
-security review because the standard Pod plan requests no ports and no public IP.
+The first-run transfer pattern is an outbound SSH/SCP connection from the GPU to the existing
+private VPS. The Pod still requests no inbound ports and no public IP. R2/S3 is deliberately
+deferred. The VPS keeps at least 15 GB free, allows only one transfer at a time, and may retain at
+most four rotating checkpoints plus the final checkpoint.
 
-1. **Human gate:** approve the temporary storage provider, retention deadline, encryption mode,
-   and two least-privilege credentials:
-   - VPS write-only access to one new immutable staging prefix;
-   - GPU read-only access to that same prefix.
+1. **Human gate:** approve the VPS transport, retention deadline, pinned host key, and two
+   least-privilege SSH identities:
+   - dataset-read access to one immutable frozen dataset export;
+   - checkpoint-read-write access to one run-specific artifact directory.
 2. **Aven — remote operation:** on the VPS, re-run private dataset preflight against the frozen
    version. Require the approved opaque handle, 83 train rows, 22 validation rows, 0 test rows,
    approved/training-eligible records, present A/V modalities, checksum success, and no
    source-level split leak.
-3. **Aven — remote operation:** upload the frozen manifest and referenced media without changing
-   their bytes. Create a private inventory containing relative object key, size, and SHA-256.
-   Never print or paste that inventory outside private storage.
-4. **Aven — remote operation:** upload the inventory last, mark the prefix immutable for the
-   operation window, and record only an opaque staging-evidence handle plus sanitized counts.
-5. Remove the VPS write credential from the process environment immediately after upload.
+3. **Aven — remote operation:** create an owner-only immutable dataset archive and private
+   inventory containing relative member name, size, and SHA-256. Never print or paste that
+   inventory outside the VPS.
+4. Configure restricted SSH accounts or forced commands so the dataset identity cannot write and
+   the checkpoint identity cannot read dataset exports. Require `BatchMode`,
+   `IdentitiesOnly`, strict host-key checking, and a pinned owner-controlled known-hosts file.
+5. Record only an opaque staging-evidence handle plus sanitized counts. Deliver keys and endpoint
+   values through the approved private channel only.
 
 No training eligibility, rights decision, segment decision, or manifest row may be changed during
-staging. Any mismatch invalidates the staging prefix.
+staging. Any mismatch invalidates the staged archive.
 
-The default staging retention deadline is 24 hours after verified Pod termination. A longer
-period requires a human decision because it expands private-data exposure and storage cost.
+The GPU-local copy is deleted after verified Pod termination. The canonical private VPS dataset
+version remains governed by its existing dataset retention decision.
+
+### Transfer command contract
+
+Codex-owned commands are dry-run-first. Building a plan reads no environment variables and opens
+no connection:
+
+```bash
+scripts/remote/pull_dataset_from_vps.sh \
+  --dataset-snapshot-handle <opaque-handle> \
+  --local-path /workspace/private/dataset-snapshot.tar.zst
+
+scripts/remote/push_checkpoint_to_vps.sh \
+  --run-handle <opaque-run-handle> \
+  --local-path /workspace/private/checkpoints/step-000010.pt
+```
+
+Execution additionally requires `--execute --approval-reference <opaque-approval-handle>`.
+Runtime values are supplied only in the operator process:
+
+```text
+CADENCE_GPU_VPS_HOST
+CADENCE_GPU_VPS_PORT
+CADENCE_GPU_VPS_USER
+CADENCE_GPU_VPS_KNOWN_HOSTS_FILE
+CADENCE_GPU_VPS_DATASET_KEY_FILE
+CADENCE_GPU_VPS_CHECKPOINT_KEY_FILE
+```
+
+Do not put values for these names in Git, Linear, Pod startup environment, `.env`, shell history,
+or sanitized reports. The two key variables must reference different owner-only key files. The
+known-hosts file must be pinned out of band; never populate it with `StrictHostKeyChecking=no` or
+blind `ssh-keyscan` output.
+
+Before an executed upload, Aven configures the restricted VPS-side
+`cadence-private-transfer commit-upload` command. It must resolve only validated opaque handles
+below the private runtime root, verify the supplied SHA-256, atomically rename the `.partial`
+artifact, apply mode `0600`, enforce the 15 GB free-space reserve, and prune only excess rotating
+checkpoints after a newer checkpoint is verified. If this server-side contract is absent, the
+transfer must fail closed.
 
 ## Phase 2 — Runtime-only secret lifecycle
 
-Provider API, dataset-read, and checkpoint-write credentials are separate and least privilege.
-They must be short lived and limited to the approved Pod/prefix where supported.
+Provider API, dataset-read, and checkpoint-read-write credentials are separate and least
+privilege. They must be short lived and limited to the approved operation where supported.
 
 1. **Human gate:** deliver each credential directly to Aven through the approved ephemeral
    channel. Never put it in a command argument, configuration file, `.env`, shell history, Git,
@@ -88,7 +129,7 @@ They must be short lived and limited to the approved Pod/prefix where supported.
    environment with shell history disabled. Do not echo or inspect the environment.
 3. Use dataset-read credentials only for download and integrity verification. Unset and revoke
    them before training begins.
-4. Use checkpoint-write credentials only for the approved durable checkpoint prefix. They must
+4. Use checkpoint credentials only for the approved run artifact directory. They must
    not read the source dataset or write elsewhere.
 5. Keep `RUNPOD_API_KEY` only in the control process performing an approved Pod lifecycle action;
    do not copy it into the Pod.
@@ -141,7 +182,9 @@ After each local checkpoint:
 3. Update the private `latest` pointer only after verification. A partially uploaded checkpoint
    must never become latest.
 4. Retain the prior verified checkpoint until the newer one has passed a fresh-process load.
-5. Record only global step, success/failure, sanitized retrieval metrics, spend/runtime, and an
+5. Keep at most four rotating verified checkpoints plus the final checkpoint. Delete an older
+   rotating checkpoint only after its replacement passes verification.
+6. Record only global step, success/failure, sanitized retrieval metrics, spend/runtime, and an
    opaque checkpoint-evidence handle outside private storage.
 
 For an operator-requested stop, let the current optimizer boundary complete, write and verify a
@@ -195,18 +238,18 @@ retain private incident evidence, and return to repository diagnosis.
    approval and verify deletion.
 5. Revoke and unset provider, dataset, and checkpoint credentials. Delete GPU-local private media,
    manifests, caches, logs containing private values, and unverified checkpoints.
-6. After the approved retention window, delete the temporary staging prefix and verify deletion.
+6. Remove GPU-local dataset and artifact copies, then verify the VPS still has the final
+   checkpoint and bounded rotating set.
 7. Inspect billing. Report only sanitized total spend/runtime and an opaque billing-evidence
    handle.
 
-The operator stays responsible until Pod absence, volume state, credential revocation, staging
-retention, and durable checkpoint availability are all verified.
+The operator stays responsible until Pod absence, volume state, credential revocation, GPU-local
+cleanup, and durable VPS checkpoint availability are all verified.
 
-GPU-local data and unverified artifacts are deleted during termination. Temporary staging is
-deleted within 24 hours. Raw private operational logs are retained for at most seven days unless
-a human approves an incident hold. The final verified checkpoint and report remain in durable
-private storage until the human records an accept/delete/extended-retention decision; they never
-enter Git or Linear.
+GPU-local data and unverified artifacts are deleted during termination. Raw private operational
+logs are retained for at most seven days unless a human approves an incident hold. The final
+verified checkpoint and report remain on the private VPS until the human records an
+accept/delete/extended-retention decision; they never enter Git or Linear.
 
 ## Incident evidence boundary
 
@@ -223,5 +266,5 @@ incident class.
 
 ## Current boundary
 
-This runbook and its tests perform no network action. No private staging prefix, credential,
-RunPod Pod, transfer, checkpoint destination, spend, or training operation is created by CAD-24.
+This runbook and its tests perform no network action. No credential, RunPod Pod, transfer, spend,
+or training operation is created by CAD-35.

@@ -25,8 +25,8 @@ flag and a separate opaque human-approval reference. Plans request no public por
 private data. Stopped Pods can retain billable storage, so every future job requires verified
 termination and a separate persistent-volume review.
 
-Future private GPU staging uses a separately approved immutable private object prefix with
-write-only VPS and read-only GPU credentials. Credentials are delivered at runtime outside
+First-run private GPU staging uses outbound SSH/SCP to the existing VPS with separate
+dataset-read and checkpoint-read-write credentials. Credentials are delivered at runtime outside
 Git/Linear/provider startup configuration, revoked after their narrow phase, and never copied
 into checkpoints or logs. The complete operator boundary is documented in
 [`operations/gpu-private-operations.md`](operations/gpu-private-operations.md).

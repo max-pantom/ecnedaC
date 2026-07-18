@@ -47,9 +47,9 @@ The GPU host may receive an authorized manifest and media through private storag
 VPS-to-GPU transfer. It must pull code by exact Git commit, but it must not obtain dataset contents
 from Git.
 
-The default future GPU mechanism is a temporary immutable private object-storage prefix with
-separate scoped VPS-write and GPU-read credentials. Staging, checksum verification, checkpoint
-durability, secret revocation, and cleanup follow
+The first-run GPU mechanism is an outbound SSH/SCP connection from the GPU to the existing VPS,
+using separate dataset-read and checkpoint-read-write identities with a pinned host key. R2/S3 is
+deferred. Staging, checksum verification, checkpoint durability, secret revocation, and cleanup follow
 [`gpu-private-operations.md`](gpu-private-operations.md). No staging or transfer is authorized by
 that documentation alone.
 
